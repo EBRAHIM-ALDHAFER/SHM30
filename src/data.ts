@@ -1,0 +1,410 @@
+import { Invoice, Product, Customer, User, Supplier, StoreProfile } from "./types";
+
+export const USERS: User[] = [
+  { 
+    id: 1, 
+    username: "admin", 
+    name: "المالك العام (سهم)", 
+    role: "مالك", 
+    avatar: "م",
+    company: "مجموعة مراسيم القابضة",
+    storeId: "store_1",
+    permissions: [
+      "workspace:view_all",
+      "workspace:switch",
+      "branch:view",
+      "branch:manage",
+      "pos:access",
+      "pos:sell",
+      "inventory:view",
+      "inventory:manage"
+    ]
+  },
+  { 
+    id: 2, 
+    username: "manager", 
+    name: "المدير العام (أريج)", 
+    role: "مدير", 
+    avatar: "د",
+    company: "مجموعة مراسيم القابضة",
+    storeId: "store_1",
+    permissions: [
+      "workspace:switch",
+      "branch:view",
+      "branch:manage",
+      "pos:access",
+      "pos:sell",
+      "inventory:view",
+      "inventory:manage"
+    ]
+  },
+  { 
+    id: 3, 
+    username: "cashier_riyadh", 
+    name: "صالح العتيبي (كاشير الرياض)", 
+    role: "كاشير", 
+    avatar: "ك",
+    company: "مجموعة مراسيم القابضة",
+    storeId: "store_1",
+    branchId: "br_riyadh_main",
+    posId: "pos_riyadh_1",
+    permissions: [
+      "pos:access",
+      "pos:sell",
+      "branch:view",
+      "inventory:view"
+    ]
+  },
+  { 
+    id: 4, 
+    username: "stock_jeddah", 
+    name: "بدر الغامدي (مخزون جدة)", 
+    role: "موظف مخزون", 
+    avatar: "خ",
+    company: "مجموعة مراسيم القابضة",
+    storeId: "store_1",
+    branchId: "br_jeddah_int",
+    warehouseId: "wh_jeddah_sub",
+    permissions: [
+      "inventory:view",
+      "inventory:manage",
+      "branch:view"
+    ]
+  },
+  { 
+    id: 5, 
+    username: "user", 
+    name: "محمد العمري", 
+    role: "مشرف", 
+    avatar: "ع",
+    company: "مجموعة مراسيم القابضة",
+    storeId: "store_1",
+    permissions: [
+      "branch:view",
+      "inventory:view",
+      "pos:access"
+    ]
+  },
+];
+
+export const PRODUCTS0: Product[] = [
+  { id: "1", name: "قهوة عربية فاخرة", sku: "P001", price: 45, cost: 20, stock: 150, category: "مشروبات" },
+  { id: "2", name: "شاي أخضر ملكي", sku: "P002", price: 25, cost: 10, stock: 200, category: "مشروبات" },
+  { id: "3", name: "تمر مجدول سكري", sku: "P003", price: 80, cost: 50, stock: 12, category: "غذائية" }, // Adjusted stock to < 50 for realistic "low stock" indicators
+  { id: "4", name: "زيت زيتون بكر", sku: "P004", price: 60, cost: 35, stock: 45, category: "غذائية" },
+];
+
+export const CUSTOMERS0: Customer[] = [
+  { id: "1", name: "أحمد بن محمد", phone: "0501234567", balance: -500, city: "الرياض" },
+  { id: "2", name: "شركة النور للتجارة", phone: "0559876543", balance: 1200, city: "جدة" },
+  { id: "3", name: "محمد علي العمري", phone: "0531112233", balance: 0, city: "الدمام" },
+];
+
+export const SUPPLIERS0: Supplier[] = [
+  { id: "sup-1", name: "مورد العطور الفرنسي", phone: "0502223334", company: "مؤسسة زهور الشرق للتجارة", balance: 15400 },
+  { id: "sup-2", name: "شركة زجاج الطيب والعلب", phone: "0551114445", company: "مصنع المدينة للزجاج", balance: 8700 },
+  { id: "sup-3", name: "مطابع سهم للتغليف والتصميم", phone: "0533336667", company: "مطابع الورق الفاخر للكرتون", balance: 0 },
+];
+
+export const INVOICES0: Invoice[] = [
+  {
+    id: "INV-001",
+    type: "sale",
+    customer: "أحمد بن محمد",
+    date: "2026-05-20",
+    total: 350,
+    status: "مدفوع",
+    items: [
+      { name: "قهوة عربية فاخرة", qty: 5, price: 45, total: 225 },
+      { name: "تمر مجدول سكري", qty: 1.5, price: 80, total: 125 },
+    ],
+  },
+  {
+    id: "INV-002",
+    type: "sale",
+    customer: "شركة النور للتجارة",
+    date: "2026-05-22",
+    total: 1200,
+    status: "معلق",
+    items: [
+      { name: "زيت زيتون بكر", qty: 10, price: 60, total: 600 },
+      { name: "تمر مجدول سكري", qty: 7.5, price: 80, total: 600 },
+    ],
+  },
+  {
+    id: "INV-003",
+    type: "purchase",
+    customer: "المورد الذهبي",
+    date: "2026-05-24",
+    total: 2500,
+    status: "مدفوع",
+    items: [
+      { name: "قهوة عربية فاخرة", qty: 50, price: 20, total: 1000 },
+      { name: "تمر مجدول سكري", qty: 30, price: 50, total: 1500 },
+    ],
+  },
+];
+
+export const STORES0: StoreProfile[] = [
+  {
+    id: "store_1",
+    name: "متجر مراسيم الطيب",
+    tradeName: "شركة مراسيم الطيب للتجارة",
+    companyLegalName: "مجموعة لؤلؤة مراسيم التجارية ذات مسؤولية محدودة",
+    description: "العلامة الرائدة في تركيب دهن العود الفاخر، خلطات الشيوخ، والمباخر الذكية بالمملكة.",
+    logoUrl: "",
+    coverUrl: "",
+    invoiceLogoUrl: "",
+    stampUrl: "",
+    crNumber: "1010778844",
+    crDate: "1442-04-18",
+    crExpiryDate: "1447-04-18",
+    vatNumber: "310499221100003",
+    unifiedNumber700: "7001889421",
+    zakatNumber: "88992122",
+    maroofNumber: "194212",
+    ministryOfLaborNumber: "22-10492-91",
+    establishmentNumber: "EST-SA-919",
+    phone: "0501234567",
+    supportPhone: "920001099",
+    email: "ceo@maraseem.com.sa",
+    supportEmail: "info@maraseem.com.sa",
+    website: "https://maraseem.com.sa",
+    address: {
+      shortAddress: "RDOD1194",
+      buildingNumber: "1194",
+      streetName: "طريق الملك فهد",
+      district: "حي الصحافة",
+      city: "الرياض",
+      region: "منطقة الرياض",
+      postalCode: "13321",
+      additionalNumber: "3491",
+      unitNumber: "21",
+      country: "المملكة العربية السعودية",
+      mapLink: "https://maps.google.com/?q=24.794,46.658",
+      gpsCoordinates: "24.7942, 46.6581"
+    },
+    bankAccounts: [
+      { id: "ba_1_1", bankName: "مصرف الراجحي", iban: "SA8040000001234567890123", accountNumber: "1234567890", beneficiaryName: "شركة مراسيم الطيب للتجارة" },
+      { id: "ba_1_2", bankName: "البنك الأهلي السعودي SNB", iban: "SA4030000009876543210987", accountNumber: "9876543210", beneficiaryName: "ش م م لؤلؤة مراسيم العطور" }
+    ],
+    documents: [
+      { id: "doc_1_1", name: "شهادة السجل التجاري الرسمي", category: "cr", uploadedAt: "2026-05-10 14:30" },
+      { id: "doc_1_2", name: "شهادة التسجيل في ضريبة القيمة المضافة", category: "vat", uploadedAt: "2026-05-11 09:12" }
+    ],
+    branches: ["br-1", "br-2"],
+    warehouses: ["wh-1"],
+    users: [1, 2],
+    platforms: {
+      salla: { isConnected: true, taxNumber: "SA-VAT-901" },
+      zid: { isConnected: false, storeId: "" },
+      shopify: { isConnected: false, storeUrl: "" },
+      wooCommerce: { isConnected: true, consumerKey: "ck_921", consumerSecret: "cs_104" }
+    },
+    isActive: true,
+    isDefault: true
+  },
+  {
+    id: "store_2",
+    name: "متجر العطور",
+    tradeName: "موقع مراسيم للعطور الفخمة المحدودة",
+    companyLegalName: "مجموعة العطر الملكي للتجارة",
+    description: "العطور الفريدة المستوحاة من الطبيعة العربية والأزهار الأندلسية الفاخرة.",
+    crNumber: "1010349211",
+    crDate: "1443-11-20",
+    crExpiryDate: "1448-11-20",
+    vatNumber: "300098711200003",
+    unifiedNumber700: "7009412993",
+    zakatNumber: "99882110",
+    maroofNumber: "220194",
+    ministryOfLaborNumber: "14-38192-31",
+    establishmentNumber: "EST-SA-204",
+    phone: "0539991112",
+    supportPhone: "920005512",
+    email: "perfume@maraseem.com.sa",
+    supportEmail: "support.perfume@maraseem.com.sa",
+    website: "https://perfumes.maraseem.com.sa",
+    address: {
+      shortAddress: "ZMDD4492",
+      buildingNumber: "4492",
+      streetName: "شارع التحلية",
+      district: "حي الروضة",
+      city: "جدة",
+      region: "منطقة مكة المكرمة",
+      postalCode: "23431",
+      additionalNumber: "1098",
+      unitNumber: "4",
+      country: "المملكة العربية السعودية",
+      mapLink: "https://maps.google.com/?q=21.562,39.155",
+      gpsCoordinates: "21.5622, 39.1553"
+    },
+    bankAccounts: [
+      { id: "ba_2_1", bankName: "بنك الإنماء", iban: "SA2020000005555666677778", accountNumber: "3323049200", beneficiaryName: "مؤسسة مراسيم العطور" }
+    ],
+    documents: [
+      { id: "doc_2_1", name: "السجل التجاري لفرع العطور", category: "cr", uploadedAt: "2026-05-15 16:40" }
+    ],
+    branches: ["br-3"],
+    warehouses: ["wh-2"],
+    users: [1],
+    platforms: {
+      salla: { isConnected: false, taxNumber: "" },
+      zid: { isConnected: true, storeId: "ZID-PERFUMES" },
+      shopify: { isConnected: false, storeUrl: "" },
+      wooCommerce: { isConnected: false, consumerKey: "", consumerSecret: "" }
+    },
+    isActive: true,
+    isDefault: false
+  },
+  {
+    id: "store_3",
+    name: "متجر الجملة",
+    tradeName: "سهم ميثاق للبخور والعود الأزرق",
+    companyLegalName: "التضامن التجاري للبخور المستورد",
+    description: "بخور كلمنتان طبيعي مائة بالمائة، دهن عود هندي قديم، ونفحات التراث الأصيل.",
+    crNumber: "2050992321",
+    crDate: "1445-01-01",
+    crExpiryDate: "1450-01-01",
+    vatNumber: "334411220000003",
+    unifiedNumber700: "7002481992",
+    zakatNumber: "55441122",
+    maroofNumber: "91244",
+    ministryOfLaborNumber: "20-91283-05",
+    establishmentNumber: "EST-SA-403",
+    phone: "0554412233",
+    supportPhone: "800119933",
+    email: "oud@maraseem.com.sa",
+    supportEmail: "care.oud@maraseem.com.sa",
+    website: "https://oud.maraseem.com.sa",
+    address: {
+      shortAddress: "KHDD8891",
+      buildingNumber: "8891",
+      streetName: "شارع الشام",
+      district: "حي الشاطئ",
+      city: "الدمام",
+      region: "المنطقة الشرقية",
+      postalCode: "32413",
+      additionalNumber: "2919",
+      unitNumber: "1",
+      country: "المملكة العربية السعودية",
+      mapLink: "https://maps.google.com/?q=26.434,50.103",
+      gpsCoordinates: "26.4341, 50.1035"
+    },
+    bankAccounts: [
+      { id: "ba_3_1", bankName: "البنك العربي الوطني", iban: "SA1040000002139482938122", accountNumber: "839219482", beneficiaryName: "مجموعة البخور المستورد" }
+    ],
+    documents: [],
+    branches: ["br-2"],
+    warehouses: ["wh-1"],
+    users: [1, 2],
+    platforms: {
+      salla: { isConnected: false, taxNumber: "" },
+      zid: { isConnected: false, storeId: "" },
+      shopify: { isConnected: true, storeUrl: "maraseem-oud.myshopify.com" },
+      wooCommerce: { isConnected: false, consumerKey: "", consumerSecret: "" }
+    },
+    isActive: true,
+    isDefault: false
+  },
+  {
+    id: "store_4",
+    name: "متجر الجملة",
+    tradeName: "مستورد الطيب وبيع الجملة",
+    companyLegalName: "الشركة الوطنية لتوريد الطيب",
+    description: "قناة مبيعات الجملة المعتمدة للتجار، الفنادق، والشركات والموزعين المعتمدين.",
+    crNumber: "1010884920",
+    crDate: "1441-06-15",
+    crExpiryDate: "1446-06-15",
+    vatNumber: "311223344500003",
+    unifiedNumber700: "7009491029",
+    zakatNumber: "22049219",
+    maroofNumber: "88102",
+    ministryOfLaborNumber: "23-01948-44",
+    establishmentNumber: "EST-SA-049",
+    phone: "0502049201",
+    supportPhone: "920001098",
+    email: "wholesale@maraseem.com.sa",
+    supportEmail: "ws@maraseem.com.sa",
+    website: "https://wholesale.maraseem.com.sa",
+    address: {
+      shortAddress: "JMDD9951",
+      buildingNumber: "9951",
+      streetName: "شارع الصناعة الرئيسي",
+      district: "حي السلي",
+      city: "الرياض",
+      region: "منطقة الرياض",
+      postalCode: "14321",
+      additionalNumber: "5521",
+      unitNumber: "12",
+      country: "المملكة العربية السعودية",
+      mapLink: "https://maps.google.com/?q=24.634,46.821",
+      gpsCoordinates: "24.6342, 46.8211"
+    },
+    bankAccounts: [
+      { id: "ba_4_1", bankName: "البنك السعودي للاستثمار", iban: "SA9045000000119283921822", accountNumber: "77218392", beneficiaryName: "الشركة الوطنية لتوريد الطيب" }
+    ],
+    documents: [],
+    branches: ["br-1"],
+    warehouses: ["wh-1"],
+    users: [1, 2],
+    platforms: {
+      salla: { isConnected: false, taxNumber: "" },
+      zid: { isConnected: false, storeId: "" },
+      shopify: { isConnected: false, storeUrl: "" },
+      wooCommerce: { isConnected: false, consumerKey: "", consumerSecret: "" }
+    },
+    isActive: true,
+    isDefault: false
+  },
+  {
+    id: "store_5",
+    name: "متجر التجزئة",
+    tradeName: "منافذ سهم لبيع التجزئة والجمهور",
+    companyLegalName: "شركة معارض سهم الاستهلاكية للمواطنين",
+    description: "قناة وفروع وصالة البيع بالتجزئة المباشرة للأفراد والجمهور العام.",
+    crNumber: "1010992381",
+    crDate: "1444-03-01",
+    crExpiryDate: "1449-03-01",
+    vatNumber: "300492194800003",
+    unifiedNumber700: "7004491932",
+    zakatNumber: "11942129",
+    maroofNumber: "33019",
+    ministryOfLaborNumber: "21-39482-12",
+    establishmentNumber: "EST-SA-119",
+    phone: "0554420194",
+    supportPhone: "920001092",
+    email: "retail@maraseem.com.sa",
+    supportEmail: "retail.support@maraseem.com.sa",
+    website: "https://retail.maraseem.com.sa",
+    address: {
+      shortAddress: "PMDD8831",
+      buildingNumber: "8831",
+      streetName: "شارع خالد بن الوليد",
+      district: "حي الروضة",
+      city: "الرياض",
+      region: "منطقة الرياض",
+      postalCode: "13211",
+      additionalNumber: "1234",
+      unitNumber: "7",
+      country: "المملكة العربية السعودية",
+      mapLink: "https://maps.google.com/?q=24.757,46.772",
+      gpsCoordinates: "24.7574, 46.7721"
+    },
+    bankAccounts: [
+      { id: "ba_5_1", bankName: "مصرف الإنماء", iban: "SA2020000009999111122223", accountNumber: "1192839210", beneficiaryName: "معارض سهم لبيع التجزئة" }
+    ],
+    documents: [],
+    branches: ["br-2"],
+    warehouses: ["wh-1"],
+    users: [1, 2],
+    platforms: {
+      salla: { isConnected: true, taxNumber: "SA-RETAIL-VAT" },
+      zid: { isConnected: false, storeId: "" },
+      shopify: { isConnected: false, storeUrl: "" },
+      wooCommerce: { isConnected: false, consumerKey: "", consumerSecret: "" }
+    },
+    isActive: true,
+    isDefault: false
+  }
+];
+

@@ -1,0 +1,8 @@
+{
+  "name": "سهم — المدير التنفيذي للتجارة الإلكترونية",
+  "description": "منصة سهم الثورية المزودة بوكلاء ذكاء اصطناعي لقيادة المتاجر والتسعير والتنبؤ بالمبيعات ومراقبة المنافسين وتوليد المتاجر الآلية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
