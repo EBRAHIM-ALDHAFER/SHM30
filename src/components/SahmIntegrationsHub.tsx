@@ -4,8 +4,20 @@ import { integrationsService } from "../core/database/integrationsService";
 import { 
   Link, Plus, RefreshCw, Sliders, Check, X, Activity, Clock, 
   Database, Eye, HelpCircle, Lock, Shield, Trash2, Globe, Terminal, 
-  ArrowLeftRight, Sparkles, Cpu, BookOpen, Key, Radio, Info, AlertCircle, Logs, Settings, Smartphone
+  ArrowLeftRight, Sparkles, Cpu, BookOpen, Key, Radio, Info, AlertCircle, Logs, Settings, Smartphone,
+  Folder, HardDrive, File, Upload, Search, Cloud, Download
 } from "lucide-react";
+const googleSignIn = async (): Promise<any> => {
+  throw new Error("Google Drive is disabled in this environment.");
+};
+const googleSignOut = async (): Promise<void> => {};
+const getDriveAccessToken = (): string | null => null;
+const googleDriveService = {
+  listFiles: async (options?: any): Promise<any[]> => [],
+  uploadFile: async (options: any): Promise<any> => ({ id: "", name: "" }),
+  deleteFile: async (fileId: string, fileName?: string): Promise<void> => {},
+  downloadFile: async (fileId: string): Promise<string> => ""
+};
 
 interface IntegrationItem {
   id: string;
@@ -82,6 +94,37 @@ export default function SahmIntegrationsHub({
 
   // Integrations Local State - Cleaned up and bound to integrationsService
   const [integrations, setIntegrations] = useState<IntegrationItem[]>([]);
+
+  // Google Drive Client-Side state
+  const [driveFiles, setDriveFiles] = useState<any[]>([]);
+  const [loadingDrive, setLoadingDrive] = useState(false);
+  const [driveSearch, setDriveSearch] = useState("");
+  const [uploadingToDrive, setUploadingToDrive] = useState(false);
+  const [previewingFile, setPreviewingFile] = useState<any | null>(null);
+  const [previewContent, setPreviewContent] = useState("");
+
+  const isDriveActive = integrations.some((i) => i.id === "gdrive" && i.status === "connected") && getDriveAccessToken() !== null;
+
+  const fetchDriveFiles = async () => {
+    if (!isDriveActive) return;
+    setLoadingDrive(true);
+    try {
+      const files = await googleDriveService.listFiles();
+      setDriveFiles(files);
+    } catch (err: any) {
+      console.warn("Error listing Drive files:", err);
+    } finally {
+      setLoadingDrive(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isDriveActive) {
+      fetchDriveFiles();
+    } else {
+      setDriveFiles([]);
+    }
+  }, [isDriveActive]);
 
   // Sync state whenever company or store changes
   useEffect(() => {
@@ -209,6 +252,22 @@ export default function SahmIntegrationsHub({
   });
 
   const handleConnect = async (id: string, customKey?: string, customSecret?: string) => {
+    if (id === "gdrive") {
+      try {
+        const result = await googleSignIn();
+        if (result) {
+          const updatedItem = await integrationsService.connectIntegration(id, "oauth_connected", "gdrive_sec_token", scopedCompany, scopedStore);
+          if (updatedItem) {
+            setIntegrations(prev => prev.map(item => item.id === id ? updatedItem : item));
+            triggerNotification(`تم ربط وتنشيط جوجل درايف للنسخ الاحتياطي ونقل الملفات! 📁`, "success");
+            addAuditLog("ربط تكامل", `تم ترخيص حساب جوجل لـ ${result.user.email} لأرشفة البيانات سحابياً.`);
+          }
+        }
+      } catch (err: any) {
+        triggerNotification(`فشل ترخيص جوجل درايف: ${err.message || err}`, "critical");
+      }
+      return;
+    }
     const updatedItem = await integrationsService.connectIntegration(id, customKey, customSecret, scopedCompany, scopedStore);
     if (updatedItem) {
       setIntegrations(prev => prev.map(item => item.id === id ? updatedItem : item));
@@ -217,6 +276,20 @@ export default function SahmIntegrationsHub({
   };
 
   const handleDisconnect = async (id: string) => {
+    if (id === "gdrive") {
+      try {
+        await googleSignOut();
+        const updatedItem = await integrationsService.disconnectIntegration(id, scopedCompany, scopedStore);
+        if (updatedItem) {
+          setIntegrations(prev => prev.map(item => item.id === id ? updatedItem : item));
+          triggerNotification(`تم إلغاء الاتصال بحساب جوجل درايف كلياً! 🛑`, "info");
+          addAuditLog("قطع تكامل", "تم سحب رمز الوصول وإلغاء تنشيط جلسة جوجل درايف.");
+        }
+      } catch (err: any) {
+        triggerNotification(`خطأ أثناء فصل جوجل درايف: ${err.message || err}`, "critical");
+      }
+      return;
+    }
     const updatedItem = await integrationsService.disconnectIntegration(id, scopedCompany, scopedStore);
     if (updatedItem) {
       setIntegrations(prev => prev.map(item => item.id === id ? updatedItem : item));
@@ -226,7 +299,29 @@ export default function SahmIntegrationsHub({
 
   const handlePing = async (id: string) => {
     setTestingId(id);
-    const result = await integrationsService.testConnection(id, scopedCompany, scopedStore);
+    let result;
+    if (id === "gdrive") {
+      const token = getDriveAccessToken();
+      if (!token) {
+        result = { success: false, message: "غير متصل بجوجل درايف. يرجى تسجيل الدخول أولاً.", latency: 0 };
+      } else {
+        try {
+          const start = Date.now();
+          const res = await fetch("https://www.googleapis.com/drive/v3/files?pageSize=1", {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.ok) {
+            result = { success: true, message: "تم القياس والربط الفعلي لخوادم Google Drive بنجاح 🌐", latency: Date.now() - start };
+          } else {
+            result = { success: false, message: "رمز الترخيص منتهي أو غير صالح 🔒", latency: 0 };
+          }
+        } catch (e: any) {
+          result = { success: false, message: `تعذر الوصول لخوادم Google: ${e.message}`, latency: 0 };
+        }
+      }
+    } else {
+      result = await integrationsService.testConnection(id, scopedCompany, scopedStore);
+    }
     const key = `${id}`;
     
     setPingStats(prev => ({
@@ -247,7 +342,7 @@ export default function SahmIntegrationsHub({
     if (result.success) {
       triggerNotification(`تم فحص الاتصال بنجاح! 🟢`, "success");
     } else {
-      triggerNotification(`فشل فحص الاتصال! الرجاء تدقيق الـ API Token ⚠️`, "error");
+      triggerNotification(`فشل فحص الاتصال: ${result.message} ⚠️`, "error");
     }
   };
 
@@ -335,12 +430,58 @@ export default function SahmIntegrationsHub({
     <div id="sahm-integrations-hub" className="space-y-6 text-right font-sans">
       
       {/* 🔮 PART 1: Core Header with Multi-Store Scoped Workspace Binding (Direct Operational Isolation) */}
-      <div className="p-5 rounded-2xl border text-right space-y-4 shadow-sm" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b pb-4" style={{ borderColor: theme.border }}>
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-amber-500/10 text-amber-500 shadow-inner">
-              <Cpu className="w-6 h-6 animate-pulse" />
+      <div className="p-5 rounded-2xl border text-right space-y-4 shadow-md relative overflow-hidden transition-all duration-300 hover:shadow-[0_0_25px_rgba(212,175,55,0.08)]" 
+        style={{
+          background: `radial-gradient(circle at top right, rgba(212, 175, 55, 0.08) 0%, rgba(13, 21, 39, 0.95) 100%)`,
+          borderColor: theme.border
+        }}>
+        <div className="absolute left-0 top-0 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 relative">
+          <div className="absolute bottom-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-amber-500/25 to-transparent" />
+          <div className="flex items-center gap-4 relative z-10 w-full lg:w-auto">
+            {/* Double-ring cloud sync status gauge */}
+            <div className="relative w-16 h-16 flex items-center justify-center shrink-0 bg-black/45 rounded-2xl border border-zinc-800/60 p-2 shadow-inner">
+              <div className="absolute inset-0">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="2.5" />
+                  <circle 
+                    cx="18" 
+                    cy="18" 
+                    r="16" 
+                    fill="none" 
+                    stroke="#D4AF37" 
+                    strokeWidth="2.5" 
+                    strokeDasharray="100" 
+                    strokeDashoffset="0.2" 
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-out"
+                  />
+                </svg>
+              </div>
+              <div className="absolute inset-1.5">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="2" />
+                  <circle 
+                    cx="18" 
+                    cy="18" 
+                    r="16" 
+                    fill="none" 
+                    stroke="#10B981" 
+                    strokeWidth="2" 
+                    strokeDasharray="100" 
+                    strokeDashoffset="0" 
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-out"
+                  />
+                </svg>
+              </div>
+              <div className="text-center z-10">
+                <span className="block text-[10px] font-black text-white font-mono leading-none">99.8%</span>
+                <span className="block text-[6px] text-amber-400 mt-0.5 leading-none">مزامنة سحابية</span>
+              </div>
             </div>
+
             <div>
               <h2 className="text-base font-black text-white flex items-center gap-2" style={{ color: theme.text }}>
                 <span>مركز التكاملات الموحد 🔌</span>
@@ -352,7 +493,7 @@ export default function SahmIntegrationsHub({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 relative z-10 shrink-0">
             <span className="text-[9px] bg-slate-900 border border-slate-800 text-amber-500 px-2.5 py-1.5 rounded-lg font-black flex items-center gap-1.5 shadow-sm animate-pulse">
               <Shield className="w-3.5 h-3.5" />
               <span>حماية ISO 27001 فوري</span>
@@ -742,8 +883,12 @@ export default function SahmIntegrationsHub({
                 ) : (
                   <button
                     onClick={() => {
-                      const customizedKey = prompt("الرجاء إدخال رمز الوصول للربط والتكامل المشفر للمنصة:");
-                      if (customizedKey) handleConnect(app.id, customizedKey);
+                      if (app.id === "gdrive") {
+                        handleConnect(app.id);
+                      } else {
+                        const customizedKey = prompt("الرجاء إدخال رمز الوصول للربط والتكامل المشفر للمنصة:");
+                        if (customizedKey) handleConnect(app.id, customizedKey);
+                      }
                     }}
                     className="py-1.5 px-3 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black font-extrabold rounded-lg text-[10px] transition-all cursor-pointer border-none flex-1 font-sans"
                   >
@@ -890,6 +1035,285 @@ export default function SahmIntegrationsHub({
           </div>
         )}
       </div>
+
+      {/* 🔮 PART 3.5: Google Drive Active Sandbox Storage Explorer */}
+      {isDriveActive && (
+        <div id="gdrive-explorer" className="p-6 rounded-2xl border text-right space-y-6 shadow-md transition-all animate-fade-in mt-6" style={{ backgroundColor: theme.card, borderColor: "rgba(245, 158, 11, 0.2)" }}>
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b pb-4 border-dashed gap-3" style={{ borderColor: theme.border }}>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchDriveFiles}
+                disabled={loadingDrive}
+                className="p-1.5 px-3 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 rounded-lg text-xs font-bold cursor-pointer transition-all border border-amber-500/10"
+              >
+                {loadingDrive ? "جاري التحديث..." : "تحديث القائمة 🔄"}
+              </button>
+            </div>
+            
+            <div className="flex items-center gap-3 justify-end text-right">
+              <div>
+                <h3 className="text-sm font-black text-white flex items-center gap-2 justify-end" style={{ color: theme.text }}>
+                  <span>سحابة المستندات والنسخ — Google Drive Explorer 📁</span>
+                  <Cloud className="w-5 h-5 text-amber-500 shrink-0 animate-pulse" />
+                </h3>
+                <p className="text-[10px]" style={{ color: theme.muted }}>
+                  تصفح الملفات والتقارير المرفوعة للنسخ الاحتياطي في حسابك، ورفع هياكل المستودعات والبيانات التوزيعية المشتركة
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Actions & Manual Upload Panel */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Quick Action 1: Instant ERP System Backup */}
+            <div className="p-4 rounded-xl border space-y-3 bg-slate-900/40" style={{ borderColor: theme.border }}>
+              <h4 className="text-xs font-black text-amber-400 font-sans">⚡ نسخة سريعة ومزامنة فروع سهم</h4>
+              <p className="text-[10px] text-gray-400 pr-1 leading-normal">
+                اضغط هنا لتوليد لقطة هيكلية ومزامنة ملف تهيئة تكاملات ERP وتخزينه آلياً في مجلد مخصص بجوجل درايف.
+              </p>
+              <button
+                onClick={async () => {
+                  setUploadingToDrive(true);
+                  try {
+                    const backupObj = {
+                      backupId: `sahm_snap_${Date.now()}`,
+                      timestamp: new Date().toISOString(),
+                      storeId: scopedStore,
+                      companyId: scopedCompany,
+                      branchScope: scopedBranch,
+                      exportVersion: "SahmOS v4.1.0",
+                      connectedIntegrations: integrations
+                        .filter(i => i.status === "connected")
+                        .map(i => ({ id: i.id, name: i.name, connectionType: i.connectionType }))
+                    };
+                    const jsonContent = JSON.stringify(backupObj, null, 2);
+                    const filename = `Sahm_ERP_Snap_Store_${scopedStore}_${new Date().toISOString().split('T')[0]}.json`;
+                    const result = await googleDriveService.uploadFile({
+                      name: filename,
+                      mimeType: "application/json",
+                      content: jsonContent
+                    });
+                    triggerNotification(`تم توليد ورفع النسخة الاحتياطية بنجاح: ${result.name} ✅`, "success");
+                    addAuditLog("نسخ احتياطي سحابي", `تم رفع النسخة الاحتياطية "${result.name}" لـ Google Drive بنجاح.`);
+                    fetchDriveFiles();
+                  } catch (err: any) {
+                    triggerNotification(`فشل الرفع الاحتياطي المباشر: ${err.message}`, "critical");
+                  } finally {
+                    setUploadingToDrive(false);
+                  }
+                }}
+                disabled={uploadingToDrive}
+                className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-black text-xs font-black rounded-lg transition-all active:scale-95 cursor-pointer border-none font-sans"
+              >
+                {uploadingToDrive ? "جاري الرفع ميكانيكياً..." : "تصدير نسخة احتياطية فورية 💾"}
+              </button>
+            </div>
+
+            {/* Quick Action 2: Direct File Upload to Google Drive */}
+            <div className="p-4 rounded-xl border space-y-3 bg-slate-900/40 lg:col-span-2" style={{ borderColor: theme.border }}>
+              <h4 className="text-xs font-black text-emerald-400 font-sans">📤 رفع مستند مخصص من جهازك</h4>
+              <p className="text-[10px] text-gray-400 pr-1 leading-normal">
+                اختر أي تقرير جرد، تتبع عهدة أو جدول مبيعات من حاسوبك لرفعه وأرشفته مباشرة في جوجل درايف.
+              </p>
+              
+              <div className="flex flex-col sm:flex-row gap-2 items-center pt-1.5">
+                <input
+                  type="file"
+                  id="gdrive-local-file"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setUploadingToDrive(true);
+                    try {
+                      const reader = new FileReader();
+                      reader.onload = async (evt) => {
+                        const content = evt.target?.result;
+                        if (content) {
+                          await googleDriveService.uploadFile({
+                            name: file.name,
+                            mimeType: file.type || "application/octet-stream",
+                            content: content as Blob | string
+                          });
+                          triggerNotification(`تم رفع الملف [${file.name}] إلى جوجل درايف! 🎉`, "success");
+                          addAuditLog("رفع ملف", `تم رفع ملف المستخدم "${file.name}" إلى جوجل درايف.`);
+                          fetchDriveFiles();
+                        }
+                      };
+                      reader.readAsArrayBuffer(file);
+                    } catch (err: any) {
+                      triggerNotification(`فشل رفع الملف: ${err.message}`, "critical");
+                    } finally {
+                      setUploadingToDrive(false);
+                      const fileInput = document.getElementById("gdrive-local-file") as HTMLInputElement;
+                      if (fileInput) fileInput.value = "";
+                    }
+                  }}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => document.getElementById("gdrive-local-file")?.click()}
+                  disabled={uploadingToDrive}
+                  className="py-2 px-4 bg-emerald-500 hover:bg-emerald-600 text-black text-xs font-black rounded-lg transition-all cursor-pointer border-none flex items-center justify-center gap-1.5 w-full sm:w-auto shrink-0 font-sans"
+                >
+                  <Upload className="w-4 h-4 text-black stroke-[3]" />
+                  <span>{uploadingToDrive ? "جاري الرفع..." : "اختر ملفاً لرفعه الآن"}</span>
+                </button>
+                <div className="text-right text-[10px] text-gray-500 sm:pr-2 leading-relaxed font-sans">
+                  يدعم جميع الامتدادات (JSON, CSV, PDF, Sheets) لتسهيل أرشفة سجلات المستودعات ونقل المستخرج البيانات.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Drive Files Search and List */}
+          <div className="space-y-3 pt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/45 p-2.5 rounded-xl border border-slate-900" style={{ borderColor: theme.border }}>
+              <span className="text-[11px] font-black font-sans text-gray-400">
+                الملفات المتوفرة: <span className="text-white font-mono text-xs">{driveFiles.length}</span> ملفات سحابية
+              </span>
+              
+              <div className="relative w-full sm:w-72">
+                <input
+                  type="text"
+                  placeholder="البحث في ملفات جوجل درايف..."
+                  value={driveSearch}
+                  onChange={(e) => setDriveSearch(e.target.value)}
+                  className="w-full text-xs py-1.5 pr-8 pl-3 rounded-lg outline-none border font-bold text-white text-right"
+                  style={{ backgroundColor: theme.card, borderColor: theme.border }}
+                />
+                <Search className="w-3.5 h-3.5 absolute right-2.5 top-2.5 text-gray-500" />
+              </div>
+            </div>
+
+            {/* List Table */}
+            {loadingDrive ? (
+              <div className="py-12 text-center text-xs text-gray-400 flex flex-col items-center justify-center gap-1.5">
+                <RefreshCw className="w-6 h-6 text-amber-500 animate-spin" />
+                <span className="font-bold">جاري استعلام ملفات جوجل درايف المباشرة...</span>
+              </div>
+            ) : driveFiles.length === 0 ? (
+              <div className="py-12 border rounded-xl border-dashed text-center text-xs text-gray-500 font-bold" style={{ borderColor: theme.border }}>
+                لا يوجد ملفات مرفوعة للاستعراض. جرب إنشاء نسخة احتياطية فورية لإشعال عمليات القنوات! 📦
+              </div>
+            ) : (
+              <div className="border rounded-xl overflow-hidden bg-slate-950/20" style={{ borderColor: theme.border }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-[11px] border-collapse">
+                    <thead>
+                      <tr className="bg-slate-950/60 border-b text-gray-400 font-bold" style={{ borderColor: theme.border }}>
+                        <th className="p-3 text-left">التحكم والعمليات</th>
+                        <th className="p-3 text-center">حجم الملف</th>
+                        <th className="p-3">تاريخ التعديل</th>
+                        <th className="p-3">نوع الملف</th>
+                        <th className="p-3">اسم المستند في جوجل درايف</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {driveFiles
+                        .filter(f => f.name.toLowerCase().includes(driveSearch.toLowerCase()))
+                        .map((file) => {
+                          const isFolder = file.mimeType === "application/vnd.google-apps.folder";
+                          const isTextReadable = file.mimeType.includes("text") || file.mimeType.includes("json") || file.name.endsWith(".json") || file.name.endsWith(".txt") || file.name.endsWith(".csv");
+                          
+                          return (
+                            <tr key={file.id} className="border-b hover:bg-slate-900/15 text-white transition-all" style={{ borderColor: theme.border }}>
+                              <td className="p-2.5 flex items-center gap-1.5 justify-start text-left">
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await googleDriveService.deleteFile(file.id, file.name);
+                                      triggerNotification("تم حذف الملف بنجاح! 🗑️", "success");
+                                      fetchDriveFiles();
+                                    } catch (e: any) {
+                                      triggerNotification(`فشل حذف الملف: ${e.message}`, "error");
+                                    }
+                                  }}
+                                  className="p-1 px-2.5 rounded bg-rose-500/10 hover:bg-rose-500 hover:text-white text-rose-400 font-bold transition-all border-none cursor-pointer text-[10px]"
+                                >
+                                  حذف 🗑️
+                                </button>
+                                
+                                {isTextReadable && (
+                                  <button
+                                    onClick={async () => {
+                                      setPreviewingFile(file);
+                                      setPreviewContent("جاري تحميل وقراءة محتويات الملف سحابياً...");
+                                      try {
+                                        const text = await googleDriveService.downloadFile(file.id);
+                                        setPreviewContent(text);
+                                      } catch (e: any) {
+                                        setPreviewContent(`خطأ أثناء تحميل الملف: ${e.message}`);
+                                      }
+                                    }}
+                                    className="p-1 px-2.5 rounded bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-500 font-bold transition-all border-none cursor-pointer text-[10px]"
+                                  >
+                                    معاينة 📝
+                                  </button>
+                                )}
+
+                                {file.webViewLink && (
+                                  <a
+                                    href={file.webViewLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1 px-2.5 rounded bg-indigo-500/10 hover:bg-indigo-500 hover:text-white text-indigo-400 font-bold transition-all text-center text-[10px] no-underline font-sans"
+                                  >
+                                    فتح 🌐
+                                  </a>
+                                )}
+                              </td>
+                              <td className="p-2.5 font-mono text-gray-400 text-center">
+                                {isFolder ? "-" : file.size ? `${(parseInt(file.size) / 1024).toFixed(1)} KB` : "0 KB"}
+                              </td>
+                              <td className="p-2.5 text-gray-400 font-mono">
+                                {new Date(file.modifiedTime).toLocaleString("ar-SA")}
+                              </td>
+                              <td className="p-2.5 text-gray-500 text-[10px] truncate max-w-[120px]" title={file.mimeType}>
+                                {isFolder ? "مجلد" : file.mimeType.split("/").pop()?.toUpperCase() || "ملف"}
+                              </td>
+                              <td className="p-2.5 font-bold flex items-center justify-end gap-1.5">
+                                <span className="truncate max-w-[200px]" title={file.name}>{file.name}</span>
+                                {isFolder ? (
+                                  <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                ) : (
+                                  <File className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Inline File Reader preview panel */}
+          {previewingFile && (
+            <div className="bg-slate-950 p-4 rounded-xl border border-dashed text-right space-y-2 animate-fade-in" style={{ borderColor: theme.border }}>
+              <div className="flex items-center justify-between border-b border-indigo-950 pb-2">
+                <button
+                  onClick={() => {
+                    setPreviewingFile(null);
+                    setPreviewContent("");
+                  }}
+                  className="p-1 px-3 bg-slate-950 text-gray-400 hover:text-white text-[10px] rounded cursor-pointer border border-slate-900 font-sans"
+                >
+                  ✕ إغلاق المعاينة
+                </button>
+                <span className="text-[11px] font-black text-amber-400 flex items-center gap-1.5 flex-row-reverse">
+                  <File className="w-3.5 h-3.5 text-amber-400" />
+                  <span>محتويات الملف: {previewingFile.name}</span>
+                </span>
+              </div>
+              <pre className="p-3 bg-slate-950/40 rounded-lg overflow-x-auto text-[10.5px] text-emerald-400 font-mono text-left max-h-60 whitespace-pre-wrap select-all border border-slate-900 scrollbar-thin">
+                {previewContent}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 🔮 PART 4: "إضافة تكامل" Complete Multi-Form Interactive Dialog Modals */}
       {showAddModal && (

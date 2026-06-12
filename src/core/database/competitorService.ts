@@ -18,6 +18,9 @@ export interface CompetitorProduct {
   created_at: string;
   updated_at?: string;
   fetch_source?: 'real_scrape' | 'ai_estimate' | 'manual_entry';
+  autoRepriceRule?: 'none' | 'match' | 'undercut' | 'margin';
+  autoRepriceValue?: number;
+  minRepricePrice?: number;
   
   // Older fields for backward compatibility
   id?: string;
@@ -43,13 +46,15 @@ const LS_KEY = "sahm_competitor_tracks_v2";
 const HISTORY_LS_KEY = "sahm_competitor_price_history";
 
 const getMode = () => {
-  return (import.meta as any).env?.VITE_DATA_MODE || (typeof localStorage !== "undefined" && localStorage.getItem("sahm_supabase_connected") === "true" ? "production" : "demo");
+  const mode = import.meta.env.VITE_DATA_MODE;
+  if (mode === "supabase" || mode === "production") return "production";
+  return "demo";
 };
 
 export const competitorService = {
   getAll: async (activeStoreId?: string): Promise<CompetitorProduct[]> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.getCompetitorProducts(activeStoreId);
     }
     try {
@@ -71,7 +76,7 @@ export const competitorService = {
 
   create: async (item: CompetitorProduct): Promise<CompetitorProduct> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveCompetitorProduct(item);
     }
     try {
@@ -90,7 +95,7 @@ export const competitorService = {
     if (!item) return null;
     const updated = { ...item, ...updates, updated_at: new Date().toISOString() };
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveCompetitorProduct(updated);
     }
     try {
@@ -104,7 +109,7 @@ export const competitorService = {
 
   delete: async (id: string): Promise<boolean> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.deleteCompetitorProduct(id);
     }
     try {
@@ -136,7 +141,7 @@ export const competitorService = {
   // Price history operations
   getPriceHistory: async (competitorProductId: string): Promise<CompetitorPriceHistory[]> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.getCompetitorPriceHistory(competitorProductId);
     }
     try {
@@ -150,7 +155,7 @@ export const competitorService = {
 
   savePriceHistory: async (historyEntry: CompetitorPriceHistory): Promise<CompetitorPriceHistory> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveCompetitorPriceHistory(historyEntry);
     }
     try {

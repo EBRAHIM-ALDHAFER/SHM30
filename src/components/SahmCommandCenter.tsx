@@ -6,12 +6,20 @@ import {
   Download, User as UserIcon, Clock, PlusCircle, Filter, ArrowRight, Lock, 
   CheckCircle, TrendingUp, ShoppingCart, DollarSign, AlertCircle, ArrowUp, 
   ArrowDown, HelpCircle, Send, SendHorizontal, LayoutList, ToggleLeft, ToggleRight, 
-  Settings as SettingsIcon, Store, ShieldAlert, BadgeCent, Star, Link, BellRing, Eye, EyeOff, CheckSquare
+  Settings as SettingsIcon, Store, ShieldAlert, BadgeCent, Star, Link, BellRing, Eye, EyeOff, CheckSquare, ChevronDown,
+  LayoutDashboard, LineChart, Lightbulb, Radio, Brain, ClipboardList, Cpu, Sliders
 } from "lucide-react";
 import Dashboard from "./Dashboard";
 import CustomerTimeline360 from "./CustomerTimeline360";
 import ConversationCRM from "./ConversationCRM";
 import WorkflowEngine from "./WorkflowEngine";
+import ExecutiveHeroCard from "./ExecutiveHeroCard";
+import SahmBrain360 from "./SahmBrain360";
+import AIAnalyzer from "./AIAnalyzer";
+import CompetitorMonitor from "./CompetitorMonitor";
+import AutoPublish from "./AutoPublish";
+import SaaSBlueprint from "./SaaSBlueprint";
+import IntelligentHub from "./IntelligentHub";
 
 interface WorkflowRule {
   id: string;
@@ -59,6 +67,30 @@ interface SahmCommandCenterProps {
   addAuditLog?: (event: string, text: string) => void;
   aiMemory?: any[];
   setAiMemory?: (m: any[]) => void;
+  
+  // Real dynamic structures
+  allowedStores?: any[];
+  activeStoreId?: string;
+  setActiveStoreId?: (id: string) => void;
+  branches?: any[];
+  activeBranchId?: string;
+  setActiveBranchId?: (id: string) => void;
+  warehouses?: any[];
+  activeWarehouseId?: string;
+  setActiveWarehouseId?: (id: string) => void;
+  setActiveTab?: (tab: string) => void;
+  prefillPublish?: any;
+  setPrefillPublish?: (val: any) => void;
+
+  activeSubTab?: 'overview' | 'analytics' | 'assistant' | 'recommendations' | 'competitors' | 'alerts' | 'operations' | 'forecasts' | 'performance' | 'cabin_customize' | 'intelligent_hub';
+  setActiveSubTab?: (tab: 'overview' | 'analytics' | 'assistant' | 'recommendations' | 'competitors' | 'alerts' | 'operations' | 'forecasts' | 'performance' | 'cabin_customize' | 'intelligent_hub') => void;
+
+  intelligentHubSubTab?: "sahm-brain" | "ai" | "publish" | "saas" | "competitors" | "catalog-health";
+  setIntelligentHubSubTab?: (tab: "sahm-brain" | "ai" | "publish" | "saas" | "competitors" | "catalog-health") => void;
+  rawCompanies?: any[];
+  impersonatedTenantId?: string | null;
+  onImpersonate?: (tenantId: string, orgId: string, companyName: string) => void;
+  onStopImpersonating?: () => void;
 }
 
 export default function SahmCommandCenter({
@@ -85,10 +117,100 @@ export default function SahmCommandCenter({
   auditLogs = [],
   addAuditLog = () => {},
   aiMemory = [],
-  setAiMemory = () => {}
+  setAiMemory = () => {},
+  
+  // Destructure dynamic resources
+  allowedStores = [],
+  activeStoreId = "store_1",
+  setActiveStoreId = () => {},
+  branches = [],
+  activeBranchId = "",
+  setActiveBranchId = () => {},
+  warehouses = [],
+  activeWarehouseId = "",
+  setActiveWarehouseId = () => {},
+  setActiveTab = () => {},
+  prefillPublish,
+  setPrefillPublish = () => {},
+
+  activeSubTab: propActiveSubTab,
+  setActiveSubTab: propSetActiveSubTab,
+
+  intelligentHubSubTab,
+  setIntelligentHubSubTab,
+  rawCompanies = [],
+  impersonatedTenantId = null,
+  onImpersonate = () => {},
+  onStopImpersonating = () => {},
 }: SahmCommandCenterProps) {
   // Navigation active tab inside Command Center
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'omnichat' | 'assistant' | 'automation' | 'customer360' | 'marketplace'>('dashboard');
+  const [localActiveSubTab, setLocalActiveSubTab] = useState<'overview' | 'analytics' | 'assistant' | 'recommendations' | 'competitors' | 'alerts' | 'operations' | 'forecasts' | 'performance' | 'cabin_customize' | 'intelligent_hub'>('overview');
+
+  const activeSubTab = propActiveSubTab || localActiveSubTab;
+  const setActiveSubTab = propSetActiveSubTab || setLocalActiveSubTab;
+
+  const subTabsList = [
+    { id: 'overview', label: 'لوحة القيادة التنفيذية', icon: LayoutDashboard, color: 'text-emerald-400' },
+    { id: 'analytics', label: 'التحليلات والمؤشرات', icon: LineChart, color: 'text-cyan-400' },
+    { id: 'recommendations', label: 'التوصيات الذكية', icon: Lightbulb, color: 'text-amber-400' },
+    { id: 'competitors', label: 'رصد المنافسين', icon: Radio, color: 'text-indigo-400' },
+    { id: 'intelligent_hub', label: 'المنصة الذكية AI Studio', icon: Brain, color: 'text-pink-400' },
+    { id: 'assistant', label: 'مساعد سهم الذكي', icon: Bot, color: 'text-sky-400' },
+    { id: 'alerts', label: 'التنبيهات الحرجة', icon: AlertCircle, color: 'text-rose-500' },
+    { id: 'forecasts', label: 'توقعات المبيعات والمخزون', icon: TrendingUp, color: 'text-violet-400' },
+    { id: 'performance', label: 'ملخص الأداء اليومي', icon: ClipboardList, color: 'text-teal-400' },
+    { id: 'operations', label: 'أوامر التشغيل والأتمتة', icon: Cpu, color: 'text-orange-400' },
+    { id: 'cabin_customize', label: 'تخصيص الكابينة', icon: Sliders, color: 'text-yellow-400' },
+  ] as const;
+
+  const [cabinDisplayMode, setCabinDisplayMode] = useState<'compact' | 'expanded'>('expanded');
+  const [assistantInnerTab, setAssistantInnerTab] = useState<'chat' | 'recommendations' | 'analyzer' | 'saas'>('chat');
+
+  // Listen to external triggers to swap subtabs / go to competitors
+  useEffect(() => {
+    const handleNavigate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.subTab) {
+        setActiveSubTab(customEvent.detail.subTab);
+        if (setActiveTab) {
+          setActiveTab("command_center");
+        }
+      }
+    };
+    const handleOpenSaaS2030 = () => {
+      setActiveSubTab("assistant");
+      setAssistantInnerTab("saas");
+      if (setActiveTab) {
+        setActiveTab("command_center");
+      }
+    };
+    window.addEventListener("sahm_navigate_command_center", handleNavigate);
+    window.addEventListener("sahm_open_saas_2030", handleOpenSaaS2030);
+    window.addEventListener("sahm_open_saas", handleOpenSaaS2030);
+    window.addEventListener("sahm_open_saas_blueprint", handleOpenSaaS2030);
+    return () => {
+      window.removeEventListener("sahm_navigate_command_center", handleNavigate);
+      window.removeEventListener("sahm_open_saas_2030", handleOpenSaaS2030);
+      window.removeEventListener("sahm_open_saas", handleOpenSaaS2030);
+      window.removeEventListener("sahm_open_saas_blueprint", handleOpenSaaS2030);
+    };
+  }, [setActiveTab]);
+
+  // Control Cabin Card (ExecutiveHeroCard) open/close under command center
+  const [isCommandPanelOpen, setIsCommandPanelOpen] = useState(false);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
+        setIsCommandPanelOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   // Unified Notification alerts state
   const [alertMsg, setAlertMsg] = useState<{ type: 'success' | 'warning' | 'info'; text: string } | null>(null);
@@ -96,6 +218,22 @@ export default function SahmCommandCenter({
   const triggerAlert = (text: string, type: 'success' | 'warning' | 'info' = 'success') => {
     setAlertMsg({ text, type });
     setTimeout(() => setAlertMsg(null), 3500);
+  };
+
+  // --- Actions & Recommendations Cockpit ---
+  const [completedActions, setCompletedActions] = useState<string[]>([]);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+
+  const handleExecuteAction = (actId: string, toastMsg: string, feedbackMsg: string) => {
+    if (completedActions.includes(actId)) return;
+    setCompletedActions([...completedActions, actId]);
+    setActionFeedback(feedbackMsg);
+    triggerAlert(toastMsg, "success");
+    
+    // Auto clear feedback after 6s
+    setTimeout(() => {
+      setActionFeedback(null);
+    }, 6000);
   };
 
   // --- Dynamic Dashboard Builder State ---
@@ -650,161 +788,438 @@ export default function SahmCommandCenter({
         )}
       </AnimatePresence>
 
-      {/* Center Sub-Navigation Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl border"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#D4AF37]/10 border border-[#D4AF37]/35 text-[#D4AF37] shadow-sm">
-            <Bot className="w-5 h-5 animate-pulse" />
+      {/* Inline Cabin Card (ExecutiveHeroCard) displayed only on لوحة القيادة التنفيذية */}
+      <AnimatePresence>
+        {activeSubTab === 'overview' && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="w-full"
+          >
+            <ExecutiveHeroCard 
+              themeColors={theme}
+              activeSubTab={activeSubTab}
+              setActiveSubTab={setActiveSubTab}
+              stores={allowedStores}
+              activeStoreId={activeStoreId}
+              setActiveStoreId={setActiveStoreId}
+              branches={branches}
+              activeBranchId={activeBranchId}
+              setActiveBranchId={setActiveBranchId}
+              warehouses={warehouses}
+              activeWarehouseId={activeWarehouseId}
+              setActiveWarehouseId={setActiveWarehouseId}
+              user={user}
+              triggerNotification={triggerNotification || ((m, t) => triggerAlert(m, t === "success" ? "success" : "warning"))}
+              setActiveTab={setActiveTab}
+              displayMode={cabinDisplayMode}
+              rawCompanies={rawCompanies}
+              impersonatedTenantId={impersonatedTenantId}
+              onImpersonate={onImpersonate}
+              onStopImpersonating={onStopImpersonating}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 🧠 SMART COMMAND CENTER - PRIMARY NAVIGATION ROW */}
+      <div 
+        id="sahm_command_header_container"
+        className="relative z-10"
+      >
+        {/* Center Sub-Navigation Tabs / Header bar */}
+        <div 
+          className="flex flex-col gap-5 p-5 rounded-2xl border transition-all duration-300 relative overflow-hidden"
+          style={{ 
+            backgroundColor: theme.card, 
+            borderColor: theme.border,
+          }}
+        >
+          {/* Header row with Title and Connection Status */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#D4AF37]/10 border border-[#D4AF37]/35 text-[#D4AF37] shadow-[0_0_10px_rgba(212,175,55,0.15)]">
+                <Bot className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="text-right">
+                <h2 className="text-sm font-black flex items-center gap-2" style={{ color: theme.text }}>
+                  مركز القيادة الذكي
+                  <span className="text-[9px] py-0.5 px-2 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">نظام التحكم الموحد</span>
+                </h2>
+                <p className="text-[10px] mt-0.5" style={{ color: theme.muted }}>المنصة الذكية الموحدة لإدارة التحليلات والتوصيات وأوامر التشغيل والأتمتة</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-zinc-400 bg-zinc-900/40 px-2.5 py-1.5 rounded-lg border border-zinc-800/40 self-start sm:self-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+              <span>الذكاء الاصطناعي متصل وجاهز</span>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-black" style={{ color: theme.text }}>Sahm Command Center</h2>
-            <p className="text-[10px]" style={{ color: theme.muted }}>وكيل ومساعد الذكاء الاصطناعي الأقرب لـ Shopify + HubSpot للخليج ⚡</p>
+
+          {/* Elegant Horizontal Divider */}
+          <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-zinc-800/60 to-transparent" />
+
+          {/* Interactive Equal-Sized Navigation Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-2 w-full font-sans">
+            {subTabsList.map((tab) => {
+              const IconComponent = tab.icon;
+              const isActive = activeSubTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveSubTab && setActiveSubTab(tab.id)}
+                  className={`group relative flex flex-col items-center justify-center h-16 p-1.5 rounded-xl border text-[10px] font-black transition-all duration-300 cursor-pointer active:scale-95 overflow-hidden ${
+                    isActive
+                      ? 'bg-gradient-to-br from-amber-500 via-yellow-400 to-amber-500 text-zinc-950 border-none shadow-[0_0_15px_rgba(212,175,55,0.3)]'
+                      : 'bg-[#0a0d18]/70 hover:bg-[#121626]/90 text-zinc-400 hover:text-zinc-100 hover:-translate-y-0.5'
+                  }`}
+                  style={{
+                    borderColor: isActive ? 'transparent' : `${theme.border}80`,
+                  }}
+                >
+                  {/* Glassmorphic inner hover glow for inactive */}
+                  {!isActive && (
+                    <span className="absolute inset-0 bg-gradient-to-tr from-amber-500/0 via-amber-500/5 to-amber-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  )}
+                  
+                  <IconComponent 
+                    className={`w-4.5 h-4.5 mb-1.5 transition-all duration-300 ${
+                      isActive 
+                        ? 'text-zinc-950 scale-110' 
+                        : `${tab.color} group-hover:scale-110 group-hover:filter group-hover:drop-shadow-[0_0_4px_rgba(255,255,255,0.1)]`
+                    }`} 
+                  />
+                  <span className="text-[10px] tracking-wide text-center leading-tight">
+                    {tab.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-        </div>
-
-        {/* Modular Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5 font-sans justify-end">
-          <button
-            onClick={() => setActiveSubTab('dashboard')}
-            className={`py-1.5 px-3 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer active:scale-95`}
-            style={{
-              backgroundColor: activeSubTab === 'dashboard' ? theme.accent : 'transparent',
-              color: activeSubTab === 'dashboard' ? '#000' : theme.text
-            }}
-          >
-            مركز القيادة المرن 📊
-          </button>
-          
-          <button
-            onClick={() => setActiveSubTab('omnichat')}
-            className={`py-1.5 px-3 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer active:scale-95`}
-            style={{
-              backgroundColor: activeSubTab === 'omnichat' ? theme.accent : 'transparent',
-              color: activeSubTab === 'omnichat' ? '#000' : theme.text
-            }}
-          >
-            OmniChat AI 💬
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('assistant')}
-            className={`py-1.5 px-3 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer active:scale-95`}
-            style={{
-              backgroundColor: activeSubTab === 'assistant' ? theme.accent : 'transparent',
-              color: activeSubTab === 'assistant' ? '#000' : theme.text
-            }}
-          >
-            مساعدي التنفيذي 🤖
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('automation')}
-            className={`py-1.5 px-3 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer active:scale-95`}
-            style={{
-              backgroundColor: activeSubTab === 'automation' ? theme.accent : 'transparent',
-              color: activeSubTab === 'automation' ? '#000' : theme.text
-            }}
-          >
-            محرك الأتمتة ⚡
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('customer360')}
-            className={`py-1.5 px-3 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer active:scale-95`}
-            style={{
-              backgroundColor: activeSubTab === 'customer360' ? theme.accent : 'transparent',
-              color: activeSubTab === 'customer360' ? '#000' : theme.text
-            }}
-          >
-            ملف العميل 360 👥
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('marketplace')}
-            className={`py-1.5 px-3 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer active:scale-95`}
-            style={{
-              backgroundColor: activeSubTab === 'marketplace' ? theme.accent : 'transparent',
-              color: activeSubTab === 'marketplace' ? '#000' : theme.text
-            }}
-          >
-            سوق الإضافات 🔌
-          </button>
         </div>
       </div>
 
+
+
       {/* TAB CONTENT 1: Unified Dashboard & Dynamic Builder */}
-      {activeSubTab === 'dashboard' && (
+      {activeSubTab === 'overview' && (
         <Dashboard 
           invoices={invoices} 
           products={products} 
           customers={customers} 
           user={user} 
           theme={theme} 
+          currentBranchId={activeBranchId}
+          branches={branches}
+          setActiveSubTab={setActiveSubTab}
+          setActiveTab={setActiveTab}
         />
       )}
 
-      {/* TAB CONTENT 2: Centralized Support Hub Portal (PM Redirection Mandate) */}
-      {activeSubTab === 'omnichat' && (
-        <div 
-          className="p-6 rounded-3xl border text-right space-y-6 shadow-xl font-sans"
-          style={{ backgroundColor: theme.card, borderColor: theme.border }}
-        >
-          {/* Header */}
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-b pb-4" style={{ borderColor: theme.border }}>
-            <span className="px-3 py-1 bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-bold rounded-xl">
-              ● السنترال الرئيسي موزاى ومؤمن
-            </span>
-            <div className="text-right">
-              <h3 className="text-sm font-black text-white">مركز تحويل المحادثات والدعم 💬</h3>
-              <p className="text-[10px]" style={{ color: theme.muted }}>
-                تم نقل صندوق الوارد ودردشة العملاء بالكامل إلى التبويب الرئيسي لتجنب التشتيت
-              </p>
+      {/* TAB CONTENT: Sales and Inventory Forecasts (🔮) */}
+      {activeSubTab === 'forecasts' && (
+        <div className="space-y-6 text-right font-sans animate-fade-in" dir="rtl">
+          <div className="p-6 rounded-2xl border text-right flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden transition-all duration-300 hover:shadow-[0_0_20px_rgba(129,140,248,0.08)]" 
+               style={{ 
+                 background: `radial-gradient(circle at top right, rgba(99, 102, 241, 0.06) 0%, ${theme.surface} 100%)`, 
+                 borderColor: theme.border 
+               }}>
+            <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+            
+            <div className="flex items-center gap-5 relative z-10 w-full">
+              {/* Double-ring compliance gauge */}
+              <div className="relative w-20 h-20 flex items-center justify-center shrink-0 bg-black/45 rounded-2xl border border-zinc-800/60 p-2 shadow-inner">
+                <div className="absolute inset-0">
+                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="2.5" />
+                    <circle 
+                      cx="18" 
+                      cy="18" 
+                      r="16" 
+                      fill="none" 
+                      stroke="#818CF8" 
+                      strokeWidth="2.5" 
+                      strokeDasharray="100" 
+                      strokeDashoffset="5.2" 
+                      strokeLinecap="round"
+                      className="transition-all duration-1000 ease-out"
+                    />
+                  </svg>
+                </div>
+                <div className="absolute inset-1.5">
+                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="2" />
+                    <circle 
+                      cx="18" 
+                      cy="18" 
+                      r="16" 
+                      fill="none" 
+                      stroke="#10B981" 
+                      strokeWidth="2" 
+                      strokeDasharray="100" 
+                      strokeDashoffset="12" 
+                      strokeLinecap="round"
+                      className="transition-all duration-1000 ease-out"
+                    />
+                  </svg>
+                </div>
+                <div className="text-center z-10">
+                  <span className="block text-[11px] font-black text-white font-mono leading-none">94.8%</span>
+                  <span className="block text-[7.5px] text-indigo-400 mt-0.5 leading-none">دقة النموذج</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-sm md:text-base font-black text-white flex items-center gap-1.5">
+                  <Bot className="w-5 h-5 text-indigo-400 animate-pulse" />
+                  توقعات المبيعات والمخزون الذكية (Predictive Analytics)
+                </h3>
+                <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
+                  باستخدام خوارزميات الذكاء الاصطناعي من سهم، نقوم بمحاكاة سلوك المشتريات ومعدل حرق المخازن لتوفير رؤى مستقبلية للأيام الثلاثين القادمة.
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* Body Content Details */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
-            {/* Left Col: Support Channels Status */}
-            <div className="md:col-span-4 p-4 rounded-2xl bg-black/30 border border-slate-900 space-y-3 shrink-0">
-              <span className="text-[10px] text-amber-500 font-black block border-b border-slate-900 pb-1.5">• قنوات الربط المباشرة الفعّالة:</span>
-              <div className="grid grid-cols-1 gap-1.5 text-xs font-bold leading-none">
-                <div className="flex justify-between items-center p-2 rounded-lg bg-emerald-500/5 text-emerald-400 border border-emerald-500/10">
-                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black font-mono">متصل حياً</span>
-                  <span>واتساب المتجر 💬</span>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Forecast Model status */}
+            <div className="p-5 rounded-2xl border flex flex-col justify-between transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]"
+                 style={{ 
+                   background: `radial-gradient(circle at bottom left, rgba(129, 140, 248, 0.02) 0%, ${theme.surface} 100%)`, 
+                   borderColor: theme.border 
+                 }}>
+              <div>
+                <span className="text-[10px] font-black bg-indigo-500/15 text-indigo-400 rounded px-2.5 py-1 inline-block font-sans mb-3 text-right">
+                  🧠 حالة نموذج ديسكفري الاستباقي
+                </span>
+                <h4 className="text-xs font-black text-white mb-2">تقدير الطلب الكلي للشهر الحالي</h4>
+                <p className="text-[10.5px] leading-relaxed text-zinc-400">
+                  يتوقع نموذج التعلم المقارن زيادة في الطلبيات بنسبة <strong className="text-emerald-400 font-mono font-black">+14.2%</strong> خلال منتصف الأسبوع مدفوعة بالحملات التسويقية المجدولة.
+                </p>
+              </div>
+
+              <div className="mt-5 space-y-2 border-t border-zinc-800/60 pt-4">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-gray-400">دقة التنبؤ المالي:</span>
+                  <span className="text-emerald-400 font-bold font-mono">94.8%</span>
                 </div>
-                <div className="flex justify-between items-center p-2 rounded-lg bg-pink-500/5 text-pink-400 border border-pink-500/10">
-                  <span className="text-[9px] bg-pink-500/20 text-pink-405 px-1.5 py-0.5 rounded font-black font-mono">نشط</span>
-                  <span>إنستغرام شات 📸</span>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-gray-400">العينات المحللة:</span>
+                  <span className="text-zinc-300 font-mono">{invoices.length} فاتورة</span>
                 </div>
-                <div className="flex justify-between items-center p-2 rounded-lg bg-blue-505/5 text-blue-400 border border-blue-500/10">
-                  <span className="text-[9px] bg-blue-500/20 text-blue-405 px-1.5 py-0.5 rounded font-black font-mono">نشط</span>
-                  <span>شات موقع سهم 💻</span>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-gray-400">الفروع المغطاة بالتوقع:</span>
+                  <span className="text-zinc-300">كافة الفروع النشطة</span>
                 </div>
               </div>
             </div>
 
-            {/* Right Col: Explanation and CTA */}
-            <div className="md:col-span-8 space-y-4">
-              <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/15 text-xs leading-relaxed text-gray-300">
-                📌 <strong>ملاحظة للمدير والمشرفين:</strong> بناءً على قرارات توحيد تجربة المستخدم، تم نقل وإلغاء واجهات المحادثات والدردشة الكاملة (OmniChat) من مركز القيادة. 
-                الآن يمكنك متابعة كافة تذاكر العملاء، والرد الفوري، واستخدام مساعد الدعم الذكي (AI Assistant)، وتعيين الردود للموظفين من مكان موحد ومرن.
+            {/* Sales Prediction Chart Area */}
+            <div className="lg:col-span-2 p-5 rounded-2xl border transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]" 
+                 style={{ 
+                   background: `radial-gradient(circle at bottom right, rgba(99, 102, 241, 0.02) 0%, ${theme.surface} 100%)`, 
+                   borderColor: theme.border 
+                 }}>
+              <h4 className="text-xs font-black text-white mb-2">📈 منحنى المبيعات المتوقع للأيام الـ 5 القادمة (رؤية يومية)</h4>
+              
+              {/* Premium Area Chart Wave */}
+              <div className="h-16 w-full opacity-90 my-3.5 relative overflow-hidden bg-zinc-950/40 rounded-xl border border-zinc-800/30 p-2 shadow-inner">
+                <svg className="w-full h-full overflow-visible" viewBox="0 0 100 30" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="forecastAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#818CF8" stopOpacity="0.25" />
+                      <stop offset="100%" stopColor="#818CF8" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  {/* Fill area */}
+                  <path 
+                    d="M0,25 C15,18 20,5 40,20 C60,10 70,5 80,18 L100,5 L100,30 L0,30 Z" 
+                    fill="url(#forecastAreaGrad)"
+                  />
+                  {/* Curve stroke */}
+                  <path 
+                    d="M0,25 C15,18 20,5 40,20 C60,10 70,5 80,18 L100,5" 
+                    fill="none" 
+                    stroke="#818CF8" 
+                    strokeWidth="2" 
+                    strokeLinecap="round" 
+                  />
+                  {/* Pulse dots */}
+                  <circle cx="40" cy="20" r="1.5" fill="#10B981" className="animate-pulse" />
+                  <circle cx="40" cy="20" r="1" fill="#10B981" />
+                  <circle cx="100" cy="5" r="1" fill="#818CF8" />
+                </svg>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 items-center justify-end">
-                <button
-                  onClick={() => {
-                    if ((window as any).__sahm_global_navigate) {
-                      (window as any).__sahm_global_navigate("help");
-                    }
-                  }}
-                  className="w-full sm:w-auto px-5 py-3 bg-amber-500 hover:bg-amber-600 text-black font-black text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border-0 transition-transform active:scale-95 shadow"
-                >
-                  <span>الدخول لمركز التواصل والدعم الموحد ➔</span>
-                </button>
+              <div className="grid grid-cols-5 gap-2.5 pt-1">
+                {[
+                  { day: "غداً (السبت)", amount: "12,450 ر.س", percentage: "+5.1%", status: "up" },
+                  { day: "الأحد", amount: "14,800 ر.س", percentage: "+18.4%", status: "up" },
+                  { day: "الإثنين", amount: "11,200 ر.س", percentage: "-1.5%", status: "down" },
+                  { day: "الثلاثاء", amount: "13,900 ر.س", percentage: "+12.1%", status: "up" },
+                  { day: "الأربعاء", amount: "16,500 ر.س", percentage: "+24.8%", status: "up" }
+                ].map((item, idx) => (
+                  <div key={idx} className="p-3 rounded-xl bg-black/25 border border-zinc-800/60 text-center flex flex-col justify-between transition-all duration-300 hover:border-zinc-700/60">
+                    <span className="text-[9.5px] font-bold text-gray-400 block">{item.day}</span>
+                    <span className="text-xs font-black text-white block mt-2 font-mono">{item.amount}</span>
+                    <span className={`text-[9px] font-extrabold mt-1 inline-block ${item.status === 'up' ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {item.percentage} {item.status === 'up' ? '▲' : '▼'}
+                    </span>
+                    {/* Micro Sparkline */}
+                    <div className="h-4 w-full mt-2 opacity-80">
+                      <svg className="w-full h-full" viewBox="0 0 100 25" preserveAspectRatio="none">
+                        {item.status === 'up' ? (
+                          <path d="M0,20 Q25,5 50,15 T100,5" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" />
+                        ) : (
+                          <path d="M0,5 Q25,20 50,10 T100,22" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" />
+                        )}
+                      </svg>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
+
+          </div>
+
+          {/* Inventory burn rate / Out-of-Stock Risk Forecast */}
+          <div className="p-5 rounded-2xl border" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+            <h3 className="text-xs font-black text-white flex items-center gap-1.5 mb-2">
+              🚨 إنذار مبكر: توقعات نفاد السلع والمستودعات
+            </h3>
+            <p className="text-[10.5px] text-zinc-400 mb-4">
+              نظم تخطيط المتطلبات (MRP) تقدر تاريخ نفاد المنتجات التالية بناءً على معدل الصرف والمبيعات والكميات المتوفرة.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {products.filter(p => (p.stock || 0) <= 25).slice(0, 6).map((p, pIdx) => {
+                const stockVal = p.stock || 0;
+                const daysLeft = Math.max(1, Math.round(stockVal / 1.5));
+                return (
+                  <div key={pIdx} className="p-4 rounded-xl bg-red-950/10 border border-red-500/20 text-right flex flex-col justify-between">
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <h4 className="text-xs font-black text-white truncate max-w-[170px]" title={p.name}>{p.name}</h4>
+                        <span className="text-[8.5px] font-mono text-zinc-500">الباركود: {p.barcode || p.sku || "N/A"}</span>
+                      </div>
+                      <span className="text-[10px] text-red-400 font-bold bg-red-500/10 px-2 py-0.5 rounded">
+                        نفاد وشيك ⚠️
+                      </span>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-zinc-900 flex justify-between items-center">
+                      <div>
+                        <span className="text-[9px] text-zinc-500 block">الرصيد المتبقي:</span>
+                        <strong className="text-xs font-mono text-white">{stockVal} قطعة</strong>
+                      </div>
+                      <div className="text-left">
+                        <span className="text-[9px] text-zinc-500 block">النفاد المتوقع بعد:</span>
+                        <strong className="text-xs font-black text-red-400 font-mono">{daysLeft} أيام</strong>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {products.filter(p => (p.stock || 0) <= 25).length === 0 && (
+                <div className="col-span-full p-8 text-center text-gray-400 text-xs">
+                  🟢 كافة السلع المتوفرة لديها مستويات إمداد آمنة وتغطي الـ 30 يوماً القادمة بشكل كامل.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT: Daily Performance Summary (📋) */}
+      {activeSubTab === 'performance' && (
+        <div className="space-y-6 text-right font-sans">
+          <div className="p-5 rounded-2xl border text-right" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+            <h3 className="text-sm font-black text-white flex items-center gap-1.5 mb-1.5">
+              <TrendingUp className="w-5 h-5 text-amber-500" />
+              ملخص الأداء اليومي والتقارير التنفيذية (Executive Report)
+            </h3>
+            <p className="text-xs text-gray-400">
+              ملخص إحصائي فوري لأهم العمليات المبيعات النشطة والتحليلات النقدية عبر الفروع وقنوات المتجر المختلفة.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4.5">
+            {[
+              { id: "1", title: "معدل تحويل الزوار الإلكترونيين", desc: "نسبة الطلبات للزيارات بالمتجر", value: "3.84%", change: "+0.45% منذ أمس", status: "up" },
+              { id: "2", title: "كفاءة تحصيل المدفوعات", desc: "مطابقة فواتير نقاط البيع الفورية", value: "99.98%", change: "تطابق كامل ومصادق", status: "up" },
+              { id: "3", title: "سرعة شحن وتوصيل الطلبات", desc: "متوسط المعالجة بالمستودعات", value: "48 دقيقة", change: "-12 دقيقة تقليص زمني", status: "up" }
+            ].map(col => (
+              <div key={col.id} className="p-4 rounded-xl border" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                <span className="text-[9.5px] font-bold text-gray-400 block">{col.title}</span>
+                <h4 className="text-lg font-black text-white mt-1.5 font-mono">{col.value}</h4>
+                <p className="text-[10px] text-emerald-400 mt-2 font-bold">{col.change}</p>
+                <span className="text-[8.5px] text-zinc-500 mt-0.5 block">{col.desc}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Daily Sales Channel Performance breakdown */}
+          <div className="p-5 rounded-2xl border" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+            <h3 className="text-xs font-black text-white border-b pb-3.5 mb-4" style={{ borderColor: theme.border }}>
+              🏢 مساهمة القنوات والفروع النشطة في سلة الأداء اليومي
+            </h3>
+
+            <div className="space-y-3.5">
+              {[
+                { name: "فرع الرياض الرئيسي VIP (سليمانية)", share: "45%", count: `${invoices.length} صفقة`, label: "الأعلى مبيعاً واستباقية" },
+                { name: "متجر الويب وتجارة الـ WooCommerce", share: "30%", count: "65 طلب إلكتروني", label: "مستويات إقبال عالية" },
+                { name: "فرع جدة (الحمراء)", share: "15%", count: "12 طلب ميداني", label: "نمو معتدل" },
+                { name: "مستودع التوزيع والنقل اللوجستي", share: "10%", count: "مستودع إسناد", label: "كفاءة تسليم ممتازة" }
+              ].map((item, idx) => (
+                <div key={idx} className="p-3.5 rounded-xl bg-black/15 border border-zinc-800/60 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-white block">{item.name}</span>
+                    <span className="text-[9.5px] text-gray-500 block mt-0.5">{item.label}</span>
+                  </div>
+                  <div className="text-left font-mono">
+                    <span className="text-xs font-black text-amber-500 block">{item.share} من الإيرادات</span>
+                    <span className="text-[10px] text-zinc-400 block mt-0.5">{item.count}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT 2: Analytics & Sahm Brain 360 */}
+      {activeSubTab === 'analytics' && (
+        <div className="space-y-6">
+          <SahmBrain360
+            theme={theme}
+            products={products}
+            setProducts={setProducts}
+            invoices={invoices}
+            setInvoices={setInvoices}
+            customers={customers}
+            setCustomers={setCustomers}
+            activeCity="الرياض"
+            totalRevenue={totalSales}
+            selectedCustomerName="سليمان العتيبي"
+            aiMemory={aiMemory}
+            setAiMemory={setAiMemory}
+            onAddLog={(action, details) => addAuditLog?.(action, details)}
+            triggerNotification={(title, text, type) => triggerNotification?.(`[${title}] ${text}`, type)}
+          />
+          
+          {/* Customer Behavioral Intelligence 360 */}
+          <div className="pt-6 border-t border-slate-800/40">
+            <CustomerTimeline360
+              theme={theme}
+              customers={customers}
+              invoices={invoices}
+              selectedCustomerId={selectedCustomerId}
+              setSelectedCustomerId={setSelectedCustomerId}
+              onAddLog={(action, details) => addAuditLog?.(action, details)}
+              triggerNotification={(title, text, type) => triggerNotification?.(text, type)}
+            />
           </div>
         </div>
       )}
@@ -1082,68 +1497,746 @@ export default function SahmCommandCenter({
 
       {/* TAB CONTENT 3: Executive AI Assistant (Focus Point 5 - AI Memory System) */}
       {activeSubTab === 'assistant' && (
-        <div className="p-5 rounded-2xl border space-y-4 text-right animate-fade-in" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-          <div className="border-b pb-2.5 mb-1" style={{ borderColor: theme.border }}>
-            <span className="text-[10px] font-black block text-amber-500">• مساعد سهم الذكي للشارات والذاكرة اليومية (Executive Intelligence)</span>
-            <p className="text-[8px] text-gray-400">اطرح التوصيات أو استفسر عن مؤشرات فروعك وتفاعلات الذاكرة تلقائياً</p>
-          </div>
-
-          <div className="space-y-4">
-            {/* Chat timeline for analysis results */}
-            <div className="space-y-4 max-h-[300px] overflow-y-auto px-1.5 py-2 border rounded-xl bg-gray-500/5" style={{ borderColor: theme.border }}>
-              {assistantMessages.map((msg, idx) => (
-                <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} text-xs font-bold leading-relaxed`}>
-                  <div className={`p-3.5 max-w-[85%] rounded-2xl ${msg.sender === 'user' ? 'bg-sky-500/10 text-sky-400' : 'bg-gray-500/10 text-gray-200'}`}
-                    style={{ 
-                      backgroundColor: msg.sender === 'user' ? theme.surface : theme.surface + "aa",
-                      borderColor: theme.border 
-                    }}>
-                    <p className="whitespace-pre-line text-xs font-bold leading-relaxed">{msg.text}</p>
-                    {msg.elements}
-                  </div>
-                </div>
-              ))}
-
-              {isAssistantTyping && (
-                <div className="flex justify-start text-xs font-bold">
-                  <div className="p-3 bg-gray-500/10 rounded-2xl text-amber-500 flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 animate-spin text-amber-400" />
-                    <span>يقوم وكيل سهم AI بسحب ومراجعة قنوات سلة وزد وتحديث الفواتير حياً...</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex gap-2.5 border-t pt-4 mt-3" style={{ borderColor: theme.border }}>
-            <input
-              type="text"
-              placeholder="اطرح استشارة أو سؤالاً تنفيذاً على سهم AI (مثال: ما هي نسبة النمو في مبيعاتي؟)..."
-              value={customAssistantText}
-              onChange={(e) => setCustomAssistantText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCustomAssistantSend()}
-              className="flex-1 text-xs py-2 px-3.5 rounded-xl border outline-none font-bold"
-              style={{ backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }}
-            />
+        <div className="p-5 rounded-2xl border space-y-5 text-right animate-fade-in" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+          {/* Inner Navigation Tabs - Redesigned Grid Bar */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 pb-3 border-b" style={{ borderColor: theme.border }}>
             <button
-              onClick={handleCustomAssistantSend}
-              className="py-2.5 px-4 rounded-xl text-black hover:brightness-110 active:scale-95 text-xs font-bold shrink-0 cursor-pointer"
-              style={{ backgroundColor: theme.accent }}
+              onClick={() => setAssistantInnerTab('chat')}
+              className={`p-3 rounded-xl border text-right transition-all cursor-pointer ${
+                assistantInnerTab === 'chat' 
+                  ? 'border-amber-500 bg-amber-500/5 text-amber-500 font-extrabold' 
+                  : 'border-slate-800 bg-slate-900/10 text-gray-400 hover:text-gray-200 hover:border-slate-700'
+              }`}
             >
-              استشر سهم 🔮
+              <div className="flex items-center gap-1.5 font-black text-xs">
+                <span>محادثة المساعد 💬</span>
+              </div>
+              <span className="block text-[9px] text-gray-400 mt-1 font-medium">الدردشة والذكاء اليومي المتكامل</span>
+            </button>
+
+            <button
+              onClick={() => setAssistantInnerTab('recommendations')}
+              className={`p-3 rounded-xl border text-right transition-all cursor-pointer ${
+                assistantInnerTab === 'recommendations' 
+                  ? 'border-amber-500 bg-amber-500/5 text-amber-500 font-extrabold' 
+                  : 'border-slate-800 bg-slate-900/10 text-gray-400 hover:text-gray-200 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 font-black text-xs">
+                <span>التوصيات الذكية 💡</span>
+              </div>
+              <span className="block text-[9px] text-gray-400 mt-1 font-medium">توصيات مخصصة وحلول النمو لمتجرك</span>
+            </button>
+
+            <button
+              onClick={() => setAssistantInnerTab('analyzer')}
+              className={`p-3 rounded-xl border text-right transition-all cursor-pointer ${
+                assistantInnerTab === 'analyzer' 
+                  ? 'border-amber-500 bg-amber-500/5 text-amber-500 font-extrabold' 
+                  : 'border-slate-800 bg-slate-900/10 text-gray-400 hover:text-gray-200 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 font-black text-xs">
+                <span>تحليل المتجر 📈</span>
+              </div>
+              <span className="block text-[9px] text-gray-400 mt-1 font-medium">الملخص التنفيذي الفوري وفحص الصحة</span>
+            </button>
+
+            <button
+              onClick={() => setAssistantInnerTab('saas')}
+              className={`p-3 rounded-xl border text-right transition-all cursor-pointer ${
+                assistantInnerTab === 'saas' 
+                  ? 'border-amber-500 bg-amber-500/5 text-amber-500 font-extrabold' 
+                  : 'border-slate-800 bg-slate-900/10 text-gray-400 hover:text-gray-200 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 font-black text-xs text-amber-400">
+                <span>سهم 2030 🇸🇦</span>
+              </div>
+              <span className="block text-[9.5px] text-white mt-1 font-black leading-tight">رؤية سهم الذكية للتحول التجاري والرقمي</span>
             </button>
           </div>
 
+          {/* Tab Render Switchers */}
+          {assistantInnerTab === 'chat' && (
+            <div className="space-y-4">
+              <div className="border-b pb-2.5 mb-1" style={{ borderColor: theme.border }}>
+                <span className="text-[10px] font-black block text-amber-500">• مساعد سهم الذكي للشارات والذاكرة اليومية (Executive Intelligence)</span>
+                <p className="text-[8px] text-gray-400">اطرح التوصيات أو استفسر عن مؤشرات فروعك وتفاعلات الذاكرة تلقائياً</p>
+              </div>
+
+              <div className="space-y-4">
+                {/* Chat timeline for analysis results */}
+                <div className="space-y-4 max-h-[300px] overflow-y-auto px-1.5 py-2 border rounded-xl bg-gray-500/5" style={{ borderColor: theme.border }}>
+                  {assistantMessages.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} text-xs font-bold leading-relaxed`}>
+                      <div className={`p-3.5 max-w-[85%] rounded-2xl ${msg.sender === 'user' ? 'bg-sky-500/10 text-sky-400' : 'bg-gray-500/10 text-gray-200'}`}
+                        style={{ 
+                          backgroundColor: msg.sender === 'user' ? theme.surface : theme.surface + "aa",
+                          borderColor: theme.border 
+                        }}>
+                        <p className="whitespace-pre-line text-xs font-bold leading-relaxed">{msg.text}</p>
+                        {msg.elements}
+                      </div>
+                    </div>
+                  ))}
+
+                  {isAssistantTyping && (
+                    <div className="flex justify-start text-xs font-bold">
+                      <div className="p-3 bg-gray-500/10 rounded-2xl text-amber-500 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 animate-spin text-amber-400" />
+                        <span>يقوم وكيل سهم AI بسحب ومراجعة قنوات سلة وزد وتحديث الفواتير حياً...</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2.5 border-t pt-4 mt-3" style={{ borderColor: theme.border }}>
+                <input
+                  type="text"
+                  placeholder="اطرح استشارة أو سؤالاً تنفيذاً على سهم AI (مثال: ما هي نسبة النمو في مبيعاتي؟)..."
+                  value={customAssistantText}
+                  onChange={(e) => setCustomAssistantText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCustomAssistantSend()}
+                  className="flex-1 text-xs py-2 px-3.5 rounded-xl border outline-none font-bold"
+                  style={{ backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }}
+                />
+                <button
+                  onClick={handleCustomAssistantSend}
+                  className="py-2.5 px-4 rounded-xl text-black hover:brightness-110 active:scale-95 text-xs font-bold shrink-0 cursor-pointer"
+                  style={{ backgroundColor: theme.accent }}
+                >
+                  استشر سهم 🔮
+                </button>
+              </div>
+            </div>
+          )}
+
+          {assistantInnerTab === 'recommendations' && (
+            <div className="space-y-4 animate-fade-in text-right">
+              <div className="pb-2.5 border-b mb-4" style={{ borderColor: theme.border }}>
+                <span className="text-[12px] font-black block text-amber-500">التوصيات الذكية 💡</span>
+                <p className="text-[10px] text-gray-400 mt-0.5">توصيات مخصصة وحلول نمو متكاملة لزيادة مبيعاتك وأرباحك تلقائياً</p>
+              </div>
+              <AIAnalyzer 
+                theme={theme} 
+                products={products}
+                setProducts={setProducts}
+                setActiveTab={setActiveTab}
+                setPrefillPublish={setPrefillPublish}
+                mode="recommendations"
+              />
+            </div>
+          )}
+
+          {assistantInnerTab === 'analyzer' && (
+            <div className="space-y-4 animate-fade-in text-right">
+              <div className="pb-2.5 border-b mb-4" style={{ borderColor: theme.border }}>
+                <span className="text-[12px] font-black block text-amber-500">تحليل المتجر وفحص الصحة الذكي 📈</span>
+                <p className="text-[10px] text-gray-400 mt-0.5">شاشة التحليل والملخصات التنفيذية وحالة الربحية الحية من قنوات التجارة</p>
+              </div>
+              <AIAnalyzer 
+                theme={theme} 
+                products={products}
+                setProducts={setProducts}
+                setActiveTab={setActiveTab}
+                setPrefillPublish={setPrefillPublish}
+                mode="store_analysis"
+              />
+            </div>
+          )}
+
+          {assistantInnerTab === 'saas' && (
+            <div className="space-y-4 animate-fade-in text-right">
+              <div className="pb-2.5 border-b mb-4" style={{ borderColor: theme.border }}>
+                <span className="text-[13px] font-black block text-amber-400 font-sans">سهم 2030 🇸🇦</span>
+                <p className="text-[11px] text-gray-300 mt-0.5 font-black font-sans">رؤية سهم الذكية للتحول التجاري والرقمي</p>
+              </div>
+              <SaaSBlueprint theme={theme} user={user} />
+            </div>
+          )}
         </div>
       )}
 
-      {/* TAB CONTENT 4: Workflow Automation Builder (Focus Point 9 - Visual Workflow Builder) */}
-      {activeSubTab === 'automation' && (
-        <WorkflowEngine
+      {/* TAB CONTENT 4: Recommendations */}
+      {activeSubTab === 'recommendations' && (
+        <div className="space-y-6 text-right font-sans animate-fade-in" dir="rtl">
+          {/* Actionable Feedback message if any action executed */}
+          <AnimatePresence>
+            {actionFeedback && (
+              <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="p-4 rounded-xl border bg-emerald-500/10 border-emerald-500/30 text-emerald-300 text-xs font-bold leading-relaxed flex items-center justify-between gap-3 text-right shadow-md"
+              >
+                <div>
+                  <span className="text-amber-500 font-black block text-[10px] mb-0.5">✓ تم اتخاذ وتطبيق القرار التنفيذي اللحظي:</span>
+                  <span>{actionFeedback}</span>
+                </div>
+                <CheckCircle className="w-6 h-6 text-emerald-400 shrink-0" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Suggested Actions Widget */}
+          <div 
+            className="p-5 rounded-2xl border flex flex-col justify-between space-y-4"
+            style={{ backgroundColor: theme.card, borderColor: theme.border }}
+          >
+            <div className="flex items-center justify-between border-b pb-3 border-slate-900/60 text-right">
+              <span className="text-[10px] font-black text-rose-450 animate-pulse font-mono flex items-center gap-1 bg-rose-500/10 px-2 py-0.5 rounded">
+                <Sparkles className="w-3 h-3 text-rose-450" />
+                <span>معزز بالذكاء وربح الأعمال</span>
+              </span>
+              <h3 className="text-xs font-black text-white flex items-center gap-1.5">
+                <Zap className="w-4 h-4 text-amber-500" />
+                <span>أهم ٥ إجراءات مقترحة لاتخاذ قرار فوري</span>
+              </h3>
+            </div>
+
+            <p className="text-xs text-gray-400 leading-relaxed font-bold">
+              مبني على أحدث المتغيرات في قاعدة البيانات ومكاملة رصيد العود والواتساب والعنوان الوطني. اضغط على أي ميزة لتطبيقها بسلامة وسرعة فائقة:
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+              {[
+                {
+                  id: "act-1",
+                  title: "📦 أمر شراء عاجل ومؤتمت",
+                  desc: `طلب توريد ١٠٠ عبوة لتغذية رصيد العود الناقص.`,
+                  longDesc: "تم إرسال أمر الشراء لـ 'مطابع سهم للتغليف'، وتحديث المخزون بنجاح لتفادي إغلاق طلبات سلة!",
+                  successToast: "تم توريد ١٠٠ عبوة إشعار شراء عاجل مضاف للفواتير بنجاح!"
+                },
+                {
+                  id: "act-2",
+                  title: "💬 رد سريع وكود خصم العميل",
+                  desc: "توججه رد ترويجي فاخر للعميل العتيبي عبر واتساب لإنقاذ السلة المتروكة.",
+                  longDesc: "تم توليد رد فاخر بالذكاء الاصطناعي مع كود MARASEEM-VIP (خصم ١٥٪) وإرساله مباشرة!",
+                  successToast: "تم توليد وإرسال كود خصم VIP للعميل سليمان العتيبي بنجاح!"
+                },
+                {
+                  id: "act-3",
+                  title: "🚚 بوليصة شحن أرامكس",
+                  desc: "تصدير الفاتورة المعلقة رقم #9145 وتجهيز بوليصة الشحن اللوجستية.",
+                  longDesc: "تم إنشاء شحنة وتأكيد العنوان الوطني للعميل وإرسال الرابط للبريد الإلكتروني!",
+                  successToast: "تم إصدار بوليصة أرامكس وتتبع الشحنة رقم TRK-8824 بنجاح!"
+                },
+                {
+                  id: "act-4",
+                  title: "⚡ مزامنة Supabase / ZATCA",
+                  desc: "ترحيل وتدبيج معاملات اليوم لمنع تضارب التقارير الضريبية.",
+                  longDesc: "تم تشفير ونشر كتل الداتا الموحدة لـ PostgreSQL واكتساب شهادة هيئة الزكاة رقم Phase-2!",
+                  successToast: "تم ترحيل فواتير الرياض بنجاح لـ Supabase وهيئة الزكاة (ZATCA)!"
+                },
+                {
+                  id: "act-5",
+                  title: "🗺️ تسجيل العنوان الوطني",
+                  desc: "استكمال وتثبيت العنوان لـ ٣ عملاء بالرياض للحيلولة دون إلغاء الطلبات.",
+                  longDesc: "تم تدقيق المباني والأحياء تلقائياً وتفعيل الكرت الوطني اللوجستي الموحد للعملاء!",
+                  successToast: "تم تطهير وتثبيت العنونة المشفرة لعملاء الرياض بنجاح!"
+                }
+              ].map((act) => {
+                const isExecuted = completedActions.includes(act.id);
+                return (
+                  <div 
+                    key={act.id}
+                    className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-3 text-right bg-slate-950/40 hover:border-amber-500/25 transition-all ${isExecuted ? "border-emerald-500/30 opacity-70" : "border-slate-900"}`}
+                  >
+                    <div className="space-y-0.5 text-right flex-1">
+                      <h4 className="text-xs font-black text-white leading-normal">{act.title}</h4>
+                      <p className="text-[10px] text-gray-400 font-bold leading-relaxed">{act.desc}</p>
+                    </div>
+
+                    <div className="flex items-center shrink-0 w-full mt-2">
+                      {isExecuted ? (
+                        <span className="w-full py-1.5 rounded-lg text-emerald-400 font-black text-[10px] flex items-center justify-center gap-1 border border-emerald-500/10 bg-emerald-500/5">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>تم بنجاح ✓</span>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleExecuteAction(act.id, act.successToast, act.longDesc)}
+                          className="w-full py-2 bg-gradient-to-l from-amber-600 to-yellow-500 text-black font-black text-[10px] rounded-lg flex items-center justify-center gap-1 cursor-pointer border-none shadow hover:brightness-110 active:scale-95 transition-all"
+                        >
+                          <Zap className="w-3 h-3" />
+                          <span>اتخاذ قرار فوري ⚡</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-2 border-t border-slate-900/60 flex items-center justify-between text-[10px] font-bold text-gray-500">
+              <span>* التعديلات تدعم التحديث بالوقت الحقيقي والتكامل الخلفي</span>
+              <span>مستشار سهم للقرارات السريعة v2.10</span>
+            </div>
+          </div>
+
+          <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-zinc-800 to-transparent" />
+
+          {/* AI Analyzer page content */}
+          <AIAnalyzer 
+            theme={theme} 
+            products={products}
+            setProducts={setProducts}
+            setActiveTab={setActiveTab}
+            setPrefillPublish={setPrefillPublish}
+          />
+        </div>
+      )}
+
+      {/* TAB CONTENT: Competitor Monitor */}
+      {activeSubTab === 'competitors' && (
+        <CompetitorMonitor
           theme={theme}
-          onAddLog={(action, details) => addAuditLog(action, details)}
-          triggerNotification={(title, text, type) => triggerNotification?.(text, type)}
+          products={products}
+          setProducts={setProducts}
+          triggerNotification={triggerNotification}
+          addAuditLog={addAuditLog}
         />
+      )}
+
+      {/* TAB CONTENT: Intelligent Hub (AI Studio) */}
+      {activeSubTab === 'intelligent_hub' && (
+        <IntelligentHub
+          theme={theme}
+          user={user}
+          products={products}
+          setProducts={setProducts}
+          invoices={invoices}
+          setInvoices={setInvoices}
+          customers={customers}
+          setCustomers={setCustomers}
+          prefillPublish={prefillPublish || null}
+          setPrefillPublish={setPrefillPublish || (() => {})}
+          setActiveTab={setActiveTab}
+          triggerNotification={triggerNotification}
+          addAuditLog={addAuditLog}
+          initialSubTab={intelligentHubSubTab}
+          setSubTab={setIntelligentHubSubTab}
+        />
+      )}
+
+      {/* TAB CONTENT 5: Alerts & Monitor */}
+      {activeSubTab === 'alerts' && (
+        <div className="space-y-6 text-right font-sans animate-fade-in" dir="rtl">
+          {/* Header Banner */}
+          <div className="p-6 rounded-2xl border text-right flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden transition-all duration-300 hover:shadow-[0_0_20px_rgba(239,68,68,0.08)]" 
+               style={{ 
+                 background: `radial-gradient(circle at top right, rgba(239, 68, 68, 0.06) 0%, ${theme.surface} 100%)`, 
+                 borderColor: theme.border 
+               }}>
+            <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-br from-rose-500/5 to-amber-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+            
+            <div className="flex items-center gap-5 relative z-10 w-full">
+              {/* SVG Radar Sweep Widget */}
+              <div className="relative w-14 h-14 flex items-center justify-center shrink-0 bg-black/45 rounded-2xl border border-zinc-800/60 p-2 shadow-inner">
+                <span className="absolute w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 animate-ping"></span>
+                <span className="absolute w-6 h-6 rounded-full bg-rose-500/20 border border-rose-500/30 animate-pulse"></span>
+                <div className="w-3.5 h-3.5 rounded-full bg-rose-600 flex items-center justify-center shadow-md">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                </div>
+                <svg className="absolute inset-0 w-full h-full animate-spin" style={{ animationDuration: '8s' }}>
+                  <circle cx="28" cy="28" r="24" fill="none" stroke="rgba(239, 68, 68, 0.04)" strokeWidth="1" />
+                  <line x1="28" y1="28" x2="28" y2="4" stroke="rgba(239, 68, 68, 0.3)" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-sm md:text-base font-black text-white flex items-center gap-1.5">
+                  🚨 نظام المراقبة الأمنية والتحذيرات اللحظية (Security & Alert Console)
+                </h3>
+                <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
+                  يقوم الذكاء الاصطناعي بمراقبة حركات المخزون المعلقة، والورديات، وتسجيل عمليات التدقيق والامتثال الضريبي بشكل مستمر لضمان نزاهة التعاملات اليومية.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Critical Inventory Column */}
+            <div className="lg:col-span-4 p-5 rounded-2xl border space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+              <div className="border-b pb-3" style={{ borderColor: theme.border }}>
+                <span className="text-[10px] font-extrabold text-rose-500 block">• تحذيرات المخزون الحرجة (Inventory Alerts)</span>
+                <p className="text-[9px] text-gray-400">المنتجات التي قاربت على النفاد (أقل من ٥٠ قطعة)</p>
+              </div>
+              
+              <div className="space-y-2.5 max-h-[450px] overflow-y-auto">
+                {products.filter(p => p.stock < 50).length === 0 ? (
+                  <div className="p-4 text-center text-xs text-gray-400 font-bold">
+                    🟢 كافة مستويات المخزون في الفروع والمغازن ممتازة ومكتملة!
+                  </div>
+                ) : (
+                  products.filter(p => p.stock < 50).map(p => (
+                    <div key={p.id} className="p-3 rounded-xl border flex justify-between items-center bg-rose-500/5 transition-all text-xs font-bold leading-normal" style={{ borderColor: theme.border }}>
+                      <div className="space-y-1">
+                        <span className="text-gray-400 text-[10px] block">الباركود: {p.sku || `#SKU-${p.id}`}</span>
+                        <span className="text-rose-500 font-black font-mono">{p.stock} قطعة متبقية</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-white font-extrabold block">{p.name}</span>
+                        <span className="text-gray-400 text-[10px] block">السعر الأساسي: {p.price} ر.س</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Column 2: أهم التنبيهات ونبض النظام (Critical Alerts & System Pulse) */}
+            <div className="lg:col-span-4 p-5 rounded-2xl border space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)] flex flex-col justify-between" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+              <div className="border-b pb-3" style={{ borderColor: theme.border }}>
+                <span className="text-[10px] font-extrabold text-amber-500 block">• أهم التنبيهات ونبض النظام (Alarms)</span>
+                <p className="text-[9px] text-gray-400">تحذيرات رادار الأسعار والذمم المعلقة اللحظية</p>
+              </div>
+              
+              <div className="space-y-3 flex-1 overflow-y-auto max-h-[450px] pr-1 mt-2">
+                {/* 📡 Competitor Price Drop Alert Card */}
+                <div className="p-3 bg-red-950/20 border border-red-500/30 rounded-xl flex flex-col gap-2.5 text-right relative overflow-hidden transition-all hover:scale-[1.005]">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/[0.03] rounded-full blur pointer-events-none"></div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] bg-red-500/10 text-red-400 font-extrabold px-2 py-0.5 rounded border border-red-500/20">رادار الأسعار 📡</span>
+                    <span className="text-[9.5px] text-gray-500 font-mono">الآن حياً</span>
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-black text-white leading-normal">
+                      تنبيه: منافس خفّض سعر منتج مشابه
+                    </h4>
+                    <p className="text-[10px] text-slate-400 font-bold leading-normal">
+                      قام "متجر النخبة للعود" بتخفيض سعر "دهن عود كلمنتان دبل سوبر" إلى ٣٨٠ ر.س (خصم ١٢٪).
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveSubTab && setActiveSubTab("competitors")}
+                    className="w-full py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-[10.5px] font-black cursor-pointer transition-all border border-red-500/15"
+                  >
+                    فتح رصد المنافسين ⚡
+                  </button>
+                </div>
+
+                {/* Other alerts */}
+                {[
+                  {
+                    id: "alt-1",
+                    title: "نفاد مخزني وشيك",
+                    desc: `صنف "${products.filter(p => p.stock < 50)[0]?.name || "العود الملكي الفاخر"}" قارب على النفاد التام من مستودع الشفا.`,
+                    type: "critical",
+                    time: "منذ ٥ د"
+                  },
+                  {
+                    id: "alt-2",
+                    title: "مديونية معلقة كبيرة",
+                    desc: "فاتورة بقيمة ١,٢٠٠ ر.س للعميل سليمان العتيبي تجاوزت فترة السداد المسموحة لفرع الرياض الرئيسي.",
+                    type: "warning",
+                    time: "منذ ٣٠ د"
+                  },
+                  {
+                    id: "alt-3",
+                    title: "مكاملة منصة سبل (SPL)",
+                    desc: "التحقق من العنونة الوطنية لاستلام طلبيات سلة بنجاح.",
+                    type: "info",
+                    time: "منذ ساعة"
+                  }
+                ].map((alt) => (
+                  <div 
+                    key={alt.id}
+                    className={`p-3 rounded-xl bg-slate-950/45 border flex items-start gap-3 text-right hover:scale-[1.005] transition-all ${
+                      alt.type === "critical" 
+                        ? "border-rose-500/40" 
+                        : alt.type === "warning" 
+                        ? "border-amber-500/30" 
+                        : "border-sky-500/20"
+                    }`}
+                  >
+                    <div className="grow space-y-1">
+                      <div className="flex items-center justify-between font-extrabold">
+                        <span className="text-[8.5px] text-gray-500 font-mono font-normal">{alt.time}</span>
+                        <h4 className={`text-xs font-black ${
+                          alt.type === "critical" 
+                            ? "text-rose-400" 
+                            : alt.type === "warning" 
+                            ? "text-amber-500" 
+                            : "text-sky-450"
+                        }`}>{alt.title}</h4>
+                      </div>
+                      <p className="text-[10.5px] text-gray-300 leading-normal font-bold">
+                        {alt.desc}
+                      </p>
+                    </div>
+                    
+                    <div className={`p-1.5 rounded-lg mt-0.5 shrink-0 ${
+                      alt.type === "critical" 
+                        ? "bg-rose-500/10 text-rose-450" 
+                        : alt.type === "warning" 
+                        ? "bg-amber-500/10 text-amber-500" 
+                        : "bg-sky-500/10 text-sky-400"
+                    }`}>
+                      <ShieldAlert className="w-4 h-4" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Unified System Logs & Audit Timeline Column */}
+            <div className="lg:col-span-4 p-5 rounded-2xl border space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+              <div className="border-b pb-3 flex justify-between items-center" style={{ borderColor: theme.border }}>
+                <span className="text-[10px] font-extrabold text-[#D4AF37] block">• سجل النشاط وحركات مركز المراقبة والتحكم بالـ AI</span>
+                <span className="text-[9px] bg-[#D4AF37]/15 text-[#D4AF37] px-2 py-0.5 rounded font-black font-mono">النشاط متصل حياً</span>
+              </div>
+
+              <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
+                {auditLogs.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-gray-400 font-semibold">
+                    📋 لا توجد حركات تدقيق تالفة أو تعديل حالياً في هذا الجزء.
+                  </div>
+                ) : (
+                  auditLogs.map((log, idx) => (
+                    <div key={idx} className="p-3.5 rounded-xl border bg-[#000]/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs" style={{ borderColor: theme.border }}>
+                      <span className="text-[10px] text-gray-400 font-bold shrink-0">{log.time || "قبل دقيقة"}</span>
+                      <div className="text-right flex-1 select-all">
+                        <span className="font-extrabold text-white block text-amber-400">{log.action || log.event}</span>
+                        <p className="text-[10.5px] text-gray-300 mt-1 font-bold leading-relaxed">{log.details || log.text}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT 6: Operations & Configurations */}
+      {activeSubTab === 'operations' && (
+        <div className="space-y-8 text-right font-sans">
+          {/* Automated rule constructor */}
+          <WorkflowEngine
+            theme={theme}
+            onAddLog={(action, details) => addAuditLog?.(action, details)}
+            triggerNotification={(title, text, type) => triggerNotification?.(text, type)}
+          />
+
+          {/* Ad copy publisher system */}
+          <AutoPublish 
+            theme={theme} 
+            prefill={prefillPublish}
+            onClearPrefill={() => setPrefillPublish?.(null)}
+            invoices={invoices}
+            setInvoices={setInvoices}
+            products={products}
+            setProducts={setProducts}
+            setActiveTab={setActiveTab}
+          />
+
+          {/* System modules & ERP permissions */}
+          <div className="p-5 rounded-2xl border space-y-4" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+            <div className="border-b pb-3" style={{ borderColor: theme.border }}>
+              <span className="text-[11px] font-black text-[#D4AF37] block">📦 موديولات النظم والـ ERP الأساسية</span>
+              <p className="text-[10px] text-gray-400 mt-0.5">تبديل وحجب صلاحيات المستخدمين والوصول المباشر بنقرة واحدة</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                { k: 'pos_and_operations', name: 'العمليات نقاط بيع (POS) 🛍️🏢', desc: 'استعراض بوابة نقاط البيع وتجهيز بيئات عمل الفواتير المتكاملة.' },
+                { k: 'accounting', name: 'الدفاتر ونظام الحسابات المحاسبي ERP ⚖️', desc: 'دليل الحسابات الشامل، السندات اليومية، كشوفات ضريبة القيمة المضافة.' },
+                { k: 'intelligent_hub', name: 'استوديو الذكاء الاصطناعي والتسويق 🧠⚡', desc: 'نمر الأعلانات، تقييم المنافسين، الربط الفوري بقنوات النشر.' },
+                { k: 'reports', name: 'التقارير وسرعات البيع الخضراء 📊', desc: 'رسوميات تفاعلية تفصيلية للأرباح والاستهلاك والنمو في الفروع.' },
+                { k: 'customers', name: 'إدارة علاقات العملاء CRM 👥', desc: 'سجل الاتصال، الفواتير، متوسط الصرف وتقييم الولاء للعلامة.' },
+                { k: 'suppliers', name: 'سلاسل التوريد والموردين 🚚', desc: 'إدارة الموردين، طلبات الشراء، كشوفات الديون، وحساب المخازن.' }
+              ].map(mod => {
+                const isEnabled = enabledModules[mod.k] !== false;
+                return (
+                  <div
+                    key={mod.k}
+                    className="p-5 rounded-2xl border flex flex-col justify-between gap-4 bg-slate-900 border-slate-800"
+                    style={{ backgroundColor: theme.card, borderColor: theme.border }}
+                  >
+                    <div>
+                      <div className="flex justify-between items-start gap-2">
+                        <h4 className="text-xs font-black" style={{ color: theme.text }}>{mod.name}</h4>
+                        <span className="text-[8.5px] bg-amber-500/10 text-amber-500 py-0.5 px-1.5 rounded font-bold">باقة SaaS الحية</span>
+                      </div>
+                      <p className="text-[10px] leading-relaxed mt-2" style={{ color: theme.muted }}>{mod.desc}</p>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t pt-3" style={{ borderColor: theme.border }}>
+                      <span className="text-[10px] font-bold text-sky-400">
+                        الحالة: {isEnabled ? "🟢 نشط بالجانب الأيمن" : "🔴 غير نشط"}
+                      </span>
+
+                      <button
+                        onClick={() => {
+                          const updated = { ...enabledModules, [mod.k]: !isEnabled };
+                          setEnabledModules?.(updated);
+                          triggerNotification?.(isEnabled ? `تم إلغاء موديول: ${mod.name}` : `تم تشغيل وتفعيل موديول: ${mod.name}`, isEnabled ? "warning" : "success");
+                          addAuditLog?.("تعديل حزم النظام", `قام المستخدم بتعديل حالة تفعيل ووصول موديول: ${mod.name}`);
+                        }}
+                        className="py-1 px-3 text-[10px] font-black rounded-lg transition-all cursor-pointer active:scale-95"
+                        style={{
+                          backgroundColor: isEnabled ? 'rgba(239, 68, 68, 0.15)' : theme.accent,
+                          color: isEnabled ? '#EF4444' : '#000',
+                          border: isEnabled ? '1px solid #EF4444' : 'none',
+                        }}
+                      >
+                        {isEnabled ? "تعطيل الموديول 🔌" : "تفعيل فوري 🔗"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* External Integrations */}
+          <div className="p-5 rounded-2xl border space-y-4" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+            <div className="border-b pb-3" style={{ borderColor: theme.border }}>
+              <span className="text-[11px] font-black text-[#D4AF37] block">🔌 بيئة الربط الخارجي وبوابات الشحن والدفع (API Integration)</span>
+              <p className="text-[10px] text-gray-400 mt-0.5">ربط خدمات الطرف الثالث والتكامل المزدوج من خلال الـ Webhook و REST API</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {marketplaceAddons.map(addon => (
+                <div
+                  key={addon.id}
+                  className="p-5 rounded-2xl border flex flex-col justify-between gap-4 transition-all duration-300 relative overflow-hidden group hover:shadow-md"
+                  style={{ backgroundColor: theme.card, borderColor: theme.border }}
+                >
+                  <div>
+                    <div className="flex justify-between items-start gap-2">
+                      <h4 className="text-xs font-black" style={{ color: theme.text }}>{addon.title}</h4>
+                      <span className="text-[9px] bg-slate-500/10 p-1 rounded font-bold" style={{ color: theme.muted }}>{addon.cost}</span>
+                    </div>
+                    <p className="text-[10px] leading-relaxed mt-2" style={{ color: theme.muted }}>{addon.desc}</p>
+                  </div>
+
+                  <div className="flex items-center justify-between border-t pt-3" style={{ borderColor: theme.border }}>
+                    <span className="text-[10px] font-bold text-sky-400">
+                      الحالة: {addon.active ? "🟢 نشط بالكامل" : "🔴 غير نشط"}
+                    </span>
+
+                    <button
+                      onClick={() => handleToggleAddon(addon.id)}
+                      className="py-1 px-3 text-[10px] font-black rounded-lg transition-all cursor-pointer active:scale-95"
+                      style={{
+                        backgroundColor: addon.active ? 'rgba(239, 68, 68, 0.15)' : theme.accent,
+                        border: addon.active ? '1px solid #EF4444' : 'none',
+                        color: addon.active ? '#EF4444' : '#000'
+                      }}
+                    >
+                      {addon.active ? "إيقاف التشغيل 🔌" : "ربط وتفعيل 🔗"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT: Cabin Customization Style Dashboard (⚙️👑) */}
+      {activeSubTab === 'cabin_customize' && (
+        <div className="space-y-6 text-right font-sans animate-fade-in relative z-10">
+          <div className="p-6 rounded-2xl border" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+            <div className="flex items-center gap-3.5 mb-4">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-amber-500/10 border border-amber-500/30 text-amber-500 shrink-0">
+                <SettingsIcon className="w-6 h-6 animate-spin-slow" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">تخصيص كابينة القيادة التنفيذية 👑⭐</h3>
+                <p className="text-[11px] text-zinc-400 mt-1">
+                  بصفتك مديراً تنفيذاً، يمكنك تهيئة وتخصيص تجربة عرض وتصميم الكابينة الذكية بما يتناسب مع دقة شاشتك وتفضيلاتك البصرية.
+                </p>
+              </div>
+            </div>
+
+            {/* Selection Block */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+              {/* Option 1: Compact View */}
+              <div 
+                onClick={() => {
+                  setCabinDisplayMode('compact');
+                  triggerAlert("تم تغيير نمط كابينة القيادة إلى النمط المدمج بنجاح.", "success");
+                }}
+                className={`p-5 rounded-xl border cursor-pointer transition-all ${
+                  cabinDisplayMode === 'compact' 
+                    ? 'border-[#D4AF37] bg-[#D4AF37]/5 shadow-[0_0_15px_rgba(212,175,55,0.1)]' 
+                    : 'border-zinc-800 bg-zinc-950/40 hover:border-zinc-700'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs md:text-sm font-black text-white">النمط المدمج الكثيف (Compact Layout) 📱</span>
+                  <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                    cabinDisplayMode === 'compact' ? 'border-[#D4AF37] bg-[#D4AF37]' : 'border-zinc-650 bg-zinc-900'
+                  }`}>
+                    {cabinDisplayMode === 'compact' && <Check className="w-3.5 h-3.5 text-black font-black" />}
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-zinc-400 leading-relaxed">
+                  هيكل ذكي ومدمج عالي الكثافة (Density) مصمم للشاشات المتوسطة والصغيرة والمتحركة. يوفر مساحة رأسية هائلة من خلال الضغط الرأسي للمؤشرات والساعات اللحظية للفرع وإخفاء إرشادات التأسيس بالكامل.
+                </p>
+              </div>
+
+              {/* Option 2: Expanded View */}
+              <div 
+                onClick={() => {
+                  setCabinDisplayMode('expanded');
+                  triggerAlert("تم تغيير نمط كابينة القيادة إلى النمط الموسع الفاخر.", "success");
+                }}
+                className={`p-5 rounded-xl border cursor-pointer transition-all ${
+                  cabinDisplayMode === 'expanded' 
+                    ? 'border-[#D4AF37] bg-[#D4AF37]/5 shadow-[0_0_15px_rgba(212,175,55,0.1)]' 
+                    : 'border-zinc-800 bg-zinc-950/40 hover:border-zinc-700'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs md:text-sm font-black text-white">النمط الموسع المكتمل (Expanded Layout) 🖥️</span>
+                  <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                    cabinDisplayMode === 'expanded' ? 'border-[#D4AF37] bg-[#D4AF37]' : 'border-zinc-650 bg-zinc-900'
+                  }`}>
+                    {cabinDisplayMode === 'expanded' && <Check className="w-3.5 h-3.5 text-black font-black" />}
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-zinc-400 leading-relaxed">
+                  الكابينة الكلاسيكية الفاخرة المكتملة لشركة سهم. تعرض مرشد معالج التأسيس المكون من 7 خطوات، شعار وميدالية سهم الذهبية التفاعلية، والنبضات اللحظية الموزعة والوقت بطابع مبتكر فريد وثلاثي التقسيم.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Real-time preview */}
+          <div className="p-6 rounded-2xl border" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+            <h4 className="text-[11px] font-black text-zinc-400 uppercase tracking-widest mb-3.5">معاينة حية تفاعلية للنمط المختار للكابينة:</h4>
+            <div className="rounded-xl overflow-hidden p-1 bg-black/30 border border-zinc-900/60 shadow-inner">
+              <ExecutiveHeroCard 
+                themeColors={theme}
+                activeSubTab={activeSubTab}
+                setActiveSubTab={setActiveSubTab}
+                stores={allowedStores}
+                activeStoreId={activeStoreId}
+                setActiveStoreId={setActiveStoreId}
+                branches={branches}
+                activeBranchId={activeBranchId}
+                setActiveBranchId={setActiveBranchId}
+                warehouses={warehouses}
+                activeWarehouseId={activeWarehouseId}
+                setActiveWarehouseId={setActiveWarehouseId}
+                user={user}
+                triggerNotification={(m, t) => triggerAlert(m, t === "success" ? "success" : "info")}
+                setActiveTab={setActiveTab}
+                displayMode={cabinDisplayMode}
+                rawCompanies={rawCompanies}
+                impersonatedTenantId={impersonatedTenantId}
+                onImpersonate={onImpersonate}
+                onStopImpersonating={onStopImpersonating}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {false && activeSubTab === 'automation' && (
@@ -1528,7 +2621,7 @@ export default function SahmCommandCenter({
             <h4 className="text-[11px] font-black text-[#D4AF37]">📦 موديولات النظم والـ ERP الأساسية</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[
-                { k: 'pos_and_operations', name: 'العمليات ونقاط البيع 🛍️🏢', desc: 'شاشة كاشير سريعة لإصدار فواتير نقاط البيع بشكل فوري ومريح.' },
+                { k: 'pos_and_operations', name: 'العمليات نقاط بيع (POS) 🛍️🏢', desc: 'استعراض بوابة نقاط البيع وتجهيز بيئات عمل الفواتير المتكاملة.' },
                 { k: 'accounting', name: 'الدفاتر ونظام الحسابات المحاسبي ERP ⚖️', desc: 'دليل الحسابات الشامل، السندات اليومية، كشوفات ضريبة القيمة المضافة.' },
                 { k: 'intelligent_hub', name: 'استوديو الذكاء الاصطناعي والتسويق 🧠⚡', desc: 'نمر الأعلانات، تقييم المنافسين، الربط الفوري بقنوات النشر.' },
                 { k: 'reports', name: 'التقارير وسرعات البيع الخضراء 📊', desc: 'رسوميات تفاعلية تفصيلية للأرباح والاستهلاك والنمو في الفروع.' },
@@ -1621,7 +2714,7 @@ export default function SahmCommandCenter({
       )}
 
       {/* GLOBAL FLOATING LAUNCHER CENTER BUTTON */}
-      <div className="fixed bottom-20 lg:bottom-6 right-6 z-40">
+      <div className="hidden lg:block fixed bottom-6 right-6 z-40">
         <button
           onClick={() => setShowQuickLauncher(!showQuickLauncher)}
           className="w-12 h-12 rounded-full flex items-center justify-center font-black text-black shadow-lg hover:scale-105 active:scale-95 transition-all shrink-0 cursor-pointer"

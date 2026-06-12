@@ -1,4 +1,4 @@
-import { SahmDatabaseService } from "./dbService";
+import { SahmDatabaseService, getRequiredTenantId } from "./dbService";
 
 export interface AuditLog {
   id: string;
@@ -7,20 +7,31 @@ export interface AuditLog {
   user: string;
   time: string;
   date: string;
+  tenant_id?: string;
+  company_id?: string;
   store_id?: string;
+  branch_id?: string;
+  user_id?: string;
+  action?: string;
+  entity_type?: string;
+  entity_id?: string;
+  description?: string;
+  metadata?: any;
   created_at: string;
 }
 
 const LS_KEY = "sahm_audit_logs_v9";
 
 const getMode = () => {
-  return (import.meta as any).env?.VITE_DATA_MODE || (typeof localStorage !== "undefined" && localStorage.getItem("sahm_supabase_connected") === "true" ? "production" : "demo");
+  const mode = import.meta.env.VITE_DATA_MODE;
+  if (mode === "supabase" || mode === "production") return "production";
+  return "demo";
 };
 
 export const auditService = {
   getAll: async (activeStoreId?: string): Promise<AuditLog[]> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.getAuditLogs(activeStoreId);
     }
     try {
@@ -42,7 +53,7 @@ export const auditService = {
 
   create: async (item: AuditLog): Promise<AuditLog> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveAuditLog(item);
     }
     try {
@@ -55,7 +66,19 @@ export const auditService = {
     return item;
   },
 
-  createAuditLog: async (event: string, text: string, username = "المدير العام", storeId?: string): Promise<AuditLog> => {
+  createAuditLog: async (
+    event: string, 
+    text: string, 
+    username = "المدير العام", 
+    storeId?: string,
+    companyId?: string,
+    branchId?: string,
+    action?: string,
+    entityType?: string,
+    entityId?: string,
+    metadata?: any,
+    description?: string
+  ): Promise<AuditLog> => {
     const fresh: AuditLog = {
       id: "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
       event,
@@ -63,7 +86,15 @@ export const auditService = {
       user: username,
       time: new Date().toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" }),
       date: "اليوم",
-      store_id: storeId,
+      tenant_id: getRequiredTenantId(),
+      company_id: companyId || (typeof window !== "undefined" ? (localStorage.getItem("sahm_impersonate_org_id") || JSON.parse(localStorage.getItem("sahm_web_user3") || "{}").organization_id || "comp-default") : "comp-default"),
+      store_id: storeId || (typeof window !== "undefined" ? (localStorage.getItem("sahm_active_store_id") || "store_1") : "store_1"),
+      branch_id: SahmDatabaseService.getInstance().resolveActiveBranchId(branchId, storeId || (typeof window !== "undefined" ? (localStorage.getItem("sahm_active_store_id") || "store_1") : "store_1")),
+      action: action || event,
+      entity_type: entityType,
+      entity_id: entityId,
+      description: description || text,
+      metadata: metadata || {},
       created_at: new Date().toISOString()
     };
     return auditService.create(fresh);
@@ -74,7 +105,7 @@ export const auditService = {
     if (!item) return null;
     const updated = { ...item, ...updates };
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveAuditLog(updated);
     }
     try {
@@ -88,7 +119,7 @@ export const auditService = {
 
   delete: async (id: string): Promise<boolean> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.deleteAuditLog(id);
     }
     try {

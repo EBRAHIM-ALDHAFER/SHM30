@@ -200,7 +200,7 @@ export default function ConversationCRM({
       if (t.id === activeThread.id) {
         return {
           ...t,
-          lastMsg: `🧾 تم إنشاء الطلب والاصدار الآلي للفاتورة رقم ${newInv.id} بقيمة ${tot.toLocaleString()} ر.س (${selInvoiceStatus})`,
+          lastMsg: `🧾 تم إنشاء الطلب والاصدار الآلي للفاتورة رقم ${newInv.id} بقيمة ${(tot ?? 0).toLocaleString()} ر.س (${selInvoiceStatus})`,
           status: "responded" as const
         };
       }
@@ -528,7 +528,7 @@ export default function ConversationCRM({
                 {activeThread.id} • عميل ذهبي 🏆
               </span>
               <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                رصيد المبيعات: {totalSalesSpent.toLocaleString()} ر.س
+                رصيد المبيعات: {(totalSalesSpent ?? 0).toLocaleString()} ر.س
               </span>
             </div>
 
@@ -822,7 +822,7 @@ export default function ConversationCRM({
                       </div>
                       <span className="font-mono text-gray-500 text-[10px]">{inv.date}</span>
                       <div className="text-left font-bold text-gray-200">
-                        <span className="font-mono block text-xs">{inv.total.toLocaleString()} ر.س</span>
+                        <span className="font-mono block text-xs">{(inv.total ?? 0).toLocaleString()} ر.س</span>
                         <span className="text-[8.5px] text-emerald-400 font-black tracking-wider uppercase">
                           {inv.status}
                         </span>
@@ -851,11 +851,11 @@ export default function ConversationCRM({
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-900 text-center">
                     <span className="text-[9px] text-gray-500 block mb-1">إجمالي المشتريات</span>
-                    <h3 className="text-sm font-black font-mono text-white">{totalSalesSpent.toLocaleString()} ر.س</h3>
+                    <h3 className="text-sm font-black font-mono text-white">{(totalSalesSpent ?? 0).toLocaleString()} ر.س</h3>
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-900 text-center">
                     <span className="text-[9px] text-gray-500 block mb-1">صافي الأرباح</span>
-                    <h3 className="text-sm font-black font-mono text-emerald-400">{totalProfits.toLocaleString()} ر.س</h3>
+                    <h3 className="text-sm font-black font-mono text-emerald-400">{(totalProfits ?? 0).toLocaleString()} ر.س</h3>
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-900 text-center">
                     <span className="text-[9px] text-gray-500 block mb-1">هامش الربحية للمشروع</span>
@@ -863,7 +863,7 @@ export default function ConversationCRM({
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-900 text-center">
                     <span className="text-[9px] text-gray-500 block mb-1">المرتجع والمسترد</span>
-                    <h3 className="text-sm font-black font-mono text-rose-400">{returnsValue.toLocaleString()} ر.س</h3>
+                    <h3 className="text-sm font-black font-mono text-rose-400">{(returnsValue ?? 0).toLocaleString()} ر.س</h3>
                   </div>
                 </div>
 

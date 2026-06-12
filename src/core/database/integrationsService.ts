@@ -30,7 +30,9 @@ export interface IntegrationItem {
 const STORAGE_KEY = "sahm_integrations_list_v3";
 
 const getMode = () => {
-  return (import.meta as any).env?.VITE_DATA_MODE || (typeof localStorage !== "undefined" && localStorage.getItem("sahm_supabase_connected") === "true" ? "production" : "demo");
+  const mode = import.meta.env.VITE_DATA_MODE;
+  if (mode === "supabase" || mode === "production") return "production";
+  return "demo";
 };
 
 // Default template list
@@ -258,6 +260,13 @@ const DEFAULT_TEMPLATES: Omit<IntegrationItem, "companyId" | "storeId">[] = [
 
   // 8. تكاملات مخصصة
   {
+    id: "gdrive", name: "جوجل درايف للتخزين السحابي (Google Drive Cloud)", logo: "📁", category: "مخصصة", status: "disconnected",
+    lastSync: "بانتظار الربط ⚠️", connectionType: "Google OAuth 2.0 Flow",
+    apiKey: "", apiSecret: "", webhookUrl: "https://api.sahmos.com/webhooks/gdrive",
+    permissions: ["drive.readonly", "drive.file", "files.metadata.readonly"], latency: 25, successRate: 100,
+    logs: []
+  },
+  {
     id: "custom_api_key", name: "رابط بروتوكول مخصص (Custom API Connector)", logo: "⚙️", category: "مخصصة", status: "disconnected",
     lastSync: "لم يبدأ", connectionType: "Custom REST Application Client",
     logs: []
@@ -274,51 +283,75 @@ const DEFAULT_TEMPLATES: Omit<IntegrationItem, "companyId" | "storeId">[] = [
   }
 ];
 
+let memoryIntegrations: IntegrationItem[] | null = null;
+
+const loadIntegrationsRaw = (): IntegrationItem[] => {
+  if (getMode() === "production") {
+    if (!memoryIntegrations) {
+      memoryIntegrations = [];
+    }
+    return memoryIntegrations;
+  }
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    console.error("Error loading integrations from local storage:", e);
+    return [];
+  }
+};
+
+const saveIntegrationsRaw = (list: IntegrationItem[]): void => {
+  if (getMode() === "production") {
+    memoryIntegrations = list;
+    return;
+  }
+  try {
+    saveIntegrationsRaw(list);
+  } catch (e) {
+    console.error("Error saving integrations to local storage:", e);
+  }
+};
+
 export const integrationsService = {
   /**
    * Get all integrations, scoped by company and store
    */
   getAllIntegrations: async (companyId = "company_maraseem_group", storeId = "store_1"): Promise<IntegrationItem[]> => {
-    const db = SahmDatabaseService.getInstance();
+    const list = loadIntegrationsRaw();
     
-    // In production, we could load from Supabase database table `s_integrations`
-    if (getMode() === "production" && db.isSupabaseConnected()) {
-      // Mock Supabase connection check, but default fallback is local storage with security protection
-    }
-
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as IntegrationItem[];
-        // Filter those matching company and store, or migrate them if they don't have companyId/storeId
-        const filtered = parsed.filter(item => item.companyId === companyId && item.storeId === storeId);
-        if (filtered.length > 0) {
-          // If in production mode, we mask credentials
-          if (getMode() === "production") {
-            return filtered.map(item => ({
-              ...item,
-              apiKey: item.apiKey ? "••••••••••••••••" : "",
-              apiSecret: item.apiSecret ? "••••••••••••••••" : ""
-            }));
-          }
-          return filtered;
-        }
+    // Filter those matching company and store
+    const filtered = list.filter(item => item.companyId === companyId && item.storeId === storeId);
+    if (filtered.length > 0) {
+      if (getMode() === "production") {
+        return filtered.map(item => ({
+          ...item,
+          apiKey: item.apiKey ? "••••••••••••••••" : "",
+          apiSecret: item.apiSecret ? "••••••••••••••••" : ""
+        }));
       }
-
-      // If no integrations for this scope, create default templates scoped to this company and store
-      const mapped = DEFAULT_TEMPLATES.map(tpl => ({
-        ...tpl,
-        companyId,
-        storeId,
-        logs: tpl.logs || []
-      })) as IntegrationItem[];
-
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
-      return mapped;
-    } catch (e) {
-      console.error("Error loading integrations from local storage:", e);
-      return [];
+      return filtered;
     }
+
+    // If no integrations for this scope, create default templates scoped to this company and store
+    const mapped = DEFAULT_TEMPLATES.map(tpl => ({
+      ...tpl,
+      companyId,
+      storeId,
+      logs: tpl.logs || []
+    })) as IntegrationItem[];
+
+    const newList = [...list.filter(item => !(item.companyId === companyId && item.storeId === storeId)), ...mapped];
+    saveIntegrationsRaw(newList);
+
+    if (getMode() === "production") {
+      return mapped.map(item => ({
+        ...item,
+        apiKey: item.apiKey ? "••••••••••••••••" : "",
+        apiSecret: item.apiSecret ? "••••••••••••••••" : ""
+      }));
+    }
+    return mapped;
   },
 
   /**
@@ -381,19 +414,29 @@ export const integrationsService = {
 
     // 3. Tax Invoices (الفواتير الضريبية) needs:
     //  - Company profile complete, vat number present, invoice settings (We read database configuration store profile for this)
-    const storeProfiles = localStorage.getItem("sahm_web_stores");
     let taxInvoicesReady = false;
     let hasVat = false;
-    if (storeProfiles) {
+    if (getMode() === "production") {
       try {
-        const parsed = JSON.parse(storeProfiles);
-        const activeStore = parsed.find((s: any) => s.id === storeId) || parsed[0];
-        hasVat = !!(activeStore && activeStore.vatNumber && activeStore.vatNumber.trim());
+        const stores = await SahmDatabaseService.getInstance().getStores();
+        const activeStore = stores.find((s: any) => s.id === storeId) || stores[0];
+        hasVat = !!(activeStore && (activeStore.vatNumber || (activeStore as any).vat_number));
         taxInvoicesReady = hasVat;
-      } catch {}
+      } catch (e) {
+        console.error("Error loading stores in getRequiredConnections:", e);
+      }
     } else {
-      // Default to checked based on static metadata if localstorage store profile has vat
-      taxInvoicesReady = true;
+      const storeProfiles = localStorage.getItem("sahm_web_stores");
+      if (storeProfiles) {
+        try {
+          const parsed = JSON.parse(storeProfiles);
+          const activeStore = parsed.find((s: any) => s.id === storeId) || parsed[0];
+          hasVat = !!(activeStore && activeStore.vatNumber && activeStore.vatNumber.trim());
+          taxInvoicesReady = hasVat;
+        } catch {}
+      } else {
+        taxInvoicesReady = true;
+      }
     }
 
     return {
@@ -423,8 +466,7 @@ export const integrationsService = {
     storeId = "store_1"
   ): Promise<IntegrationItem | null> => {
     // Load unmasked raw storage to modify it
-    const saved = localStorage.getItem(STORAGE_KEY);
-    let list: IntegrationItem[] = saved ? JSON.parse(saved) : [];
+    let list = loadIntegrationsRaw();
     
     const idx = list.findIndex(item => item.id === id && item.companyId === companyId && item.storeId === storeId);
     if (idx === -1) return null;
@@ -451,7 +493,7 @@ export const integrationsService = {
     };
 
     list[idx] = updatedItem;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    saveIntegrationsRaw(list);
 
     // Audit Log Integration (Requirement 9)
     await auditService.createAuditLog(
@@ -469,8 +511,7 @@ export const integrationsService = {
    * Disconnects an integration (Requirement 8, 9)
    */
   disconnectIntegration: async (id: string, companyId = "company_maraseem_group", storeId = "store_1"): Promise<IntegrationItem | null> => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    let list: IntegrationItem[] = saved ? JSON.parse(saved) : [];
+    let list = loadIntegrationsRaw();
 
     const idx = list.findIndex(item => item.id === id && item.companyId === companyId && item.storeId === storeId);
     if (idx === -1) return null;
@@ -493,7 +534,7 @@ export const integrationsService = {
     };
 
     list[idx] = updatedItem;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    saveIntegrationsRaw(list);
 
     // Audit Log Integration (Requirement 9)
     await auditService.createAuditLog(
@@ -516,8 +557,7 @@ export const integrationsService = {
     companyId = "company_maraseem_group", 
     storeId = "store_1"
   ): Promise<IntegrationItem | null> => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    let list: IntegrationItem[] = saved ? JSON.parse(saved) : [];
+    let list = loadIntegrationsRaw();
 
     const idx = list.findIndex(item => item.id === id && item.companyId === companyId && item.storeId === storeId);
     if (idx === -1) return null;
@@ -546,7 +586,7 @@ export const integrationsService = {
     };
 
     list[idx] = updatedItem;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    saveIntegrationsRaw(list);
 
     // Create Audit Log
     if (isTokenUpdated) {
@@ -577,8 +617,7 @@ export const integrationsService = {
     const duration = Math.floor(Math.random() * 85) + 12;
     const isSuccess = Math.random() > 0.05; // 95% success
 
-    const saved = localStorage.getItem(STORAGE_KEY);
-    let list: IntegrationItem[] = saved ? JSON.parse(saved) : [];
+    let list = loadIntegrationsRaw();
 
     const idx = list.findIndex(item => item.id === id && item.companyId === companyId && item.storeId === storeId);
     if (idx !== -1) {
@@ -594,7 +633,7 @@ export const integrationsService = {
         latency: isSuccess ? duration : undefined,
         logs: [logEntry, ...(target.logs || [])]
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      saveIntegrationsRaw(list);
 
       if (isSuccess) {
         await auditService.createAuditLog(
@@ -624,8 +663,7 @@ export const integrationsService = {
    * Sync inventory and orders (Requirement 8)
    */
   syncIntegration: async (id: string, companyId = "company_maraseem_group", storeId = "store_1"): Promise<IntegrationItem | null> => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    let list: IntegrationItem[] = saved ? JSON.parse(saved) : [];
+    let list = loadIntegrationsRaw();
 
     const idx = list.findIndex(item => item.id === id && item.companyId === companyId && item.storeId === storeId);
     if (idx === -1) return null;
@@ -645,7 +683,7 @@ export const integrationsService = {
     };
 
     list[idx] = updatedItem;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    saveIntegrationsRaw(list);
 
     await auditService.createAuditLog(
       "مزامنة تكامل", 
@@ -674,8 +712,7 @@ export const integrationsService = {
     companyId = "company_maraseem_group", 
     storeId = "store_1"
   ): Promise<IntegrationItem> => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    let list: IntegrationItem[] = saved ? JSON.parse(saved) : [];
+    let list = loadIntegrationsRaw();
 
     const id = "custom_plat_" + Date.now();
     const logEntry: IntegrationLogEntry = {
@@ -694,7 +731,7 @@ export const integrationsService = {
     };
 
     list.unshift(newItem);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    saveIntegrationsRaw(list);
 
     // Audit Log for custom integration
     await auditService.createAuditLog(
@@ -712,10 +749,8 @@ export const integrationsService = {
    * Deletes a custom integration, or disables a standard one (Requirement 8, 9)
    */
   deleteIntegration: async (id: string, companyId = "company_maraseem_group", storeId = "store_1"): Promise<boolean> => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return false;
-    
-    let list: IntegrationItem[] = JSON.parse(saved) as IntegrationItem[];
+    let list = loadIntegrationsRaw();
+    if (list.length === 0) return false;
     const target = list.find(item => item.id === id && item.companyId === companyId && item.storeId === storeId);
     if (!target) return false;
 
@@ -742,7 +777,7 @@ export const integrationsService = {
       }
     }
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    saveIntegrationsRaw(list);
 
     await auditService.createAuditLog(
       "حذف تكامل", 

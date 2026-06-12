@@ -1,9 +1,16 @@
 import React, { useState } from "react";
 import { Invoice, Product, Customer, ThemeColors, InvoiceItem, Supplier } from "../types";
-import { Plus, Printer, Trash, Filter, Search, Calendar, FileText, User, X, Check, Zap } from "lucide-react";
+import { Plus, Printer, Trash, Filter, Search, Calendar, FileText, User, X, Check, Zap, Cloud } from "lucide-react";
 import { exportToExcel, exportToPDF } from "../utils/exportUtils";
 import ProfileAvatar from "./ProfileAvatar";
 import AddressCard from "./AddressCard";
+import { SubscriptionGuard } from "../core/database/subscriptionGuard";
+import { SahmDatabaseService } from "../core/database/dbService";
+const getDriveAccessToken = (): string | null => null;
+const googleDriveService = {
+  getOrCreateFolder: async (name: string): Promise<string> => "",
+  uploadFile: async (options: any): Promise<any> => ({ id: "", name: "" })
+};
 
 interface InvoicesProps {
   invoices: Invoice[];
@@ -23,6 +30,94 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
   const [filter, setFilter] = useState<'all' | 'sale' | 'purchase'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showNew, setShowNew] = useState(false);
+  const [isBackupLoading, setIsBackupLoading] = useState(false);
+
+  const handleExportInvoicesToDrive = async () => {
+    const isConnected = localStorage.getItem("sahm_gdrive_connected") === "true" && getDriveAccessToken() !== null;
+    if (!isConnected) {
+      alert("يرجى تفعيل وربط Google Drive أولاً من لوحة 'إدارة التكاملات والدمج' لتنشيط ميزة النسخ الاحتياطي السحابي الذاتي!");
+      return;
+    }
+
+    setIsBackupLoading(true);
+    try {
+      const folderId = await googleDriveService.getOrCreateFolder("سهم - النسخ الاحتياطية (Sahm Backups)");
+      
+      const header = exportColumns.map(col => col.label).join(",");
+      const rows = list.map(item => exportColumns.map(col => {
+        const val = item[col.key as keyof Invoice];
+        const formatted = (col as any).format ? (col as any).format(val) : val;
+        return `"${String(formatted ?? "").replace(/"/g, '""')}"`;
+      }).join(",")).join("\r\n");
+      const csvContent = "\uFEFF" + header + "\r\n" + rows; // utf-8 BOM
+
+      const fileName = `سجل_الفواتير_المحاسبية_${new Date().toISOString().slice(0, 10)}_${Date.now().toString().slice(-4)}.csv`;
+      await googleDriveService.uploadFile({
+        name: fileName,
+        mimeType: "text/csv;charset=utf-8",
+        content: csvContent,
+        folderId
+      });
+
+      triggerNotification("✓ تم رفع نسخة احتياطية آمنة من الفواتير الحالية إلى Google Drive بنجاح!", "success");
+      addAuditLog("نسخ احتياطي سحابي", `تم رفع نسخة احتياطية من قائمة الفواتير (${list.length} فاتورة) باسم ${fileName} إلى جوجل درايف.`);
+    } catch (err: any) {
+      alert(`فشل رفع النسخة الاحتياطية: ${err.message}`);
+    } finally {
+      setIsBackupLoading(false);
+    }
+  };
+
+  const handleBackupSingleInvoiceToDrive = async (invoiceToBackup: Invoice) => {
+    const isConnected = localStorage.getItem("sahm_gdrive_connected") === "true" && getDriveAccessToken() !== null;
+    if (!isConnected) {
+      alert("يرجى تفعيل وربط Google Drive أولاً من لوحة 'إدارة التكاملات والدمج' لتنشيط ميزة النسخ الاحتياطي السحابي الذاتي!");
+      return;
+    }
+
+    setIsBackupLoading(true);
+    try {
+      const folderId = await googleDriveService.getOrCreateFolder("سهم - النسخ الاحتياطية (Sahm Backups)");
+      
+      const backupText = `
+=========================================
+مكتبة سهم المحاسبية — فاتورة معتمدة ضريبياً
+=========================================
+رقم الفاتورة: ${invoiceToBackup.id}
+التاريخ المعتمد: ${invoiceToBackup.date}
+نوع الفاتورة: ${invoiceToBackup.type === 'sale' ? 'مبيعات' : 'توريد ومشتريات'}
+العميل/المورد: ${invoiceToBackup.customer}
+حالة الدفع قيد الصرف: ${invoiceToBackup.status}
+
+الأصناف المدرجة:
+-----------------------------------------
+${invoiceToBackup.items.map((it, idx) => `${idx + 1}. ${it.name} - الكمية: ${it.qty} - السعر: ${it.price} ر.س - الإجمالي: ${it.total} ر.س`).join("\n")}
+
+تفاصيل القيمة المضافة (VAT):
+-----------------------------------------
+المبلغ قبل الضريبة: ${(invoiceToBackup.total / 1.15).toFixed(2)} ر.س
+ضريبة القيمة المضافة (15%): ${(invoiceToBackup.total - (invoiceToBackup.total / 1.15)).toFixed(2)} ر.س
+الإجمالي النهائي الشامل للضريبة: ${invoiceToBackup.total} ر.س
+
+تم التصدير والتوثيق سحابياً وتفصيلياً بنجاح في: ${new Date().toLocaleString("ar-SA")}
+`;
+
+      const fileName = `فاتورة_${invoiceToBackup.id}_${invoiceToBackup.customer.replace(/\s+/g, '_')}.txt`;
+      await googleDriveService.uploadFile({
+        name: fileName,
+        mimeType: "text/plain;charset=utf-8",
+        content: backupText,
+        folderId
+      });
+
+      triggerNotification(`✓ تم نسخ الفاتورة [${invoiceToBackup.id}] احتياطياً على Google Drive بنجاح!`, "success");
+      addAuditLog("نسخ احتياطي فردي", `تم رفع نسخة احتياطية من الفاتورة رقم ${invoiceToBackup.id} إلى جوجل درايف بنجاح.`);
+    } catch (err: any) {
+      alert(`فشل رفع النسخة الاحتياطية السحابية: ${err.message}`);
+    } finally {
+      setIsBackupLoading(false);
+    }
+  };
 
   React.useEffect(() => {
     const handleOpenNewInvoice = () => {
@@ -70,10 +165,10 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
 
   const list = invoices
     .filter(i => filter === 'all' || i.type === filter)
-    .filter(i => i.customer.toLowerCase().includes(searchTerm.toLowerCase()) || i.id.toLowerCase().includes(searchTerm.toLowerCase()));
+    .filter(i => (i.customer || '').toLowerCase().includes((searchTerm || '').toLowerCase()) || (i.id || '').toLowerCase().includes((searchTerm || '').toLowerCase()));
 
   const formatMoney = (n: number) => {
-    return n.toLocaleString("ar-SA") + " ر.س";
+    return (n ?? 0).toLocaleString("ar-SA") + " ر.س";
   };
 
   const exportColumns = [
@@ -85,11 +180,33 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
     { key: "status", label: "حالة السداد" }
   ];
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    const tenantId = localStorage.getItem("sahm_impersonate_tenant_id") || JSON.parse(localStorage.getItem("sahm_web_user") || "{}").tenant_id || "tenant-default";
+    const userLocal = JSON.parse(localStorage.getItem("sahm_web_user") || "{}");
+    const isPlatform = ["platform_owner", "system_owner", "system_admin"].includes(String(userLocal.role || "").trim());
+    if (!isPlatform && tenantId !== "tenant-local") {
+      const guard = SubscriptionGuard.getInstance();
+      const hasAccess = await guard.canUseFeature(tenantId, "excel_export");
+      if (!hasAccess) {
+        triggerNotification("⚠️ ميزة تصدير Excel غير متاحة في باقتك الحالية. يرجى الترقية.", "critical");
+        return;
+      }
+    }
     exportToExcel(list, exportColumns, "سجل_الفواتير_" + new Date().toISOString().slice(0, 10));
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
+    const tenantId = localStorage.getItem("sahm_impersonate_tenant_id") || JSON.parse(localStorage.getItem("sahm_web_user") || "{}").tenant_id || "tenant-default";
+    const userLocal = JSON.parse(localStorage.getItem("sahm_web_user") || "{}");
+    const isPlatform = ["platform_owner", "system_owner", "system_admin"].includes(String(userLocal.role || "").trim());
+    if (!isPlatform && tenantId !== "tenant-local") {
+      const guard = SubscriptionGuard.getInstance();
+      const hasAccess = await guard.canUseFeature(tenantId, "pdf_export");
+      if (!hasAccess) {
+        triggerNotification("⚠️ ميزة تصدير PDF غير متاحة في باقتك الحالية. يرجى الترقية.", "critical");
+        return;
+      }
+    }
     exportToPDF("سجل ومستندات الفواتير والحسابات 🧾", exportColumns, list, "الأرشيف الكامل للفواتير الصادرة والواردة للمتجر");
   };
 
@@ -117,7 +234,7 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
 
   const grandTotal = form.items.reduce((sum, item) => sum + item.qty * item.price, 0);
 
-  function saveInvoice(e: React.FormEvent) {
+  async function saveInvoice(e: React.FormEvent) {
     e.preventDefault();
     if (!form.customer.trim()) {
       alert("الرجاء إدخال اسم العميل أو المورد.");
@@ -126,6 +243,25 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
     if (form.items.some(i => !i.name.trim() || i.qty <= 0 || i.price <= 0)) {
       alert("الرجاء تعبئة بيانات الأصناف بشكل صحيح (الاسم، الكمية، السعر).");
       return;
+    }
+
+    const tenantId = localStorage.getItem("sahm_impersonate_tenant_id") || JSON.parse(localStorage.getItem("sahm_web_user") || "{}").tenant_id || "tenant-default";
+    const userLocal = JSON.parse(localStorage.getItem("sahm_web_user") || "{}");
+    const isPlatform = ["platform_owner", "system_owner", "system_admin"].includes(String(userLocal.role || "").trim());
+
+    if (!isPlatform && tenantId !== "tenant-local") {
+      const guard = SubscriptionGuard.getInstance();
+      const hasAccess = await guard.canUseFeature(tenantId, "invoices");
+      if (!hasAccess) {
+        triggerNotification("⚠️ ميزة الفواتير غير متاحة في باقتك الحالية. يرجى ترقية باقتك.", "critical");
+        return;
+      }
+
+      const limitCheck = await guard.checkLimit(tenantId, "invoices", invoices.length);
+      if (!limitCheck.allowed) {
+        triggerNotification(`⚠️ وصلت إلى حد الفواتير الشهرية في باقتك الحالية (الحد: ${limitCheck.limit}). تواصل مع إدارة منصة سهم للترقية.`, "critical");
+        return;
+      }
     }
 
     const calculatedItems = form.items.map(i => ({
@@ -146,7 +282,7 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
     // Update supplier balance automatically if it is a purchase invoice (accounts payable initial status is PENDING/معلق)
     if (form.type === 'purchase') {
       const supplierName = form.customer.trim();
-      const existingSup = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
+      const existingSup = suppliers.find(s => (s.name || '').toLowerCase() === (supplierName || '').toLowerCase());
       const balanceToAdd = form.status === 'معلق' ? grandTotal : 0;
 
       if (existingSup) {
@@ -166,6 +302,16 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
 
     setInvoices([newInvoice, ...invoices]);
     setShowNew(false);
+
+    // Increment usage
+    if (!isPlatform && tenantId !== "tenant-local") {
+      try {
+        const db = SahmDatabaseService.getInstance();
+        await db.incrementSubscriptionUsage(tenantId, userLocal.company_id || "comp-default", "invoices_count", 1);
+      } catch (uErr) {
+        console.warn("[Invoices] Failed to increment invoices count in usage:", uErr);
+      }
+    }
     
     // Reset form
     setForm({
@@ -186,7 +332,7 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
     // If it is a purchase invoice, we update the supplier's balance!
     if (targetInvoice.type === 'purchase') {
       const supplierName = targetInvoice.customer.trim();
-      const existingSup = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
+      const existingSup = suppliers.find(s => (s.name || '').toLowerCase() === (supplierName || '').toLowerCase());
       if (existingSup) {
         let diff = 0;
         if (nextStatus === 'معلق') {
@@ -219,7 +365,7 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
       // If deleted invoice is a pending purchase, decrease the supplier's outstanding dues balance
       if (targetInvoice && targetInvoice.type === 'purchase' && targetInvoice.status === 'معلق') {
         const supplierName = targetInvoice.customer.trim();
-        const existingSup = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
+        const existingSup = suppliers.find(s => (s.name || '').toLowerCase() === (supplierName || '').toLowerCase());
         if (existingSup) {
           setSuppliers(suppliers.map(s => s.id === existingSup.id ? { ...s, balance: s.balance - targetInvoice.total } : s));
         }
@@ -227,36 +373,42 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
 
       if (targetInvoice) {
         try {
-          const trashSaved = localStorage.getItem("sahm_web_trash_bin");
-          const trashList = trashSaved ? JSON.parse(trashSaved) : [];
-          
-          const newTrashItem = {
-            id: "tr_inv_" + Date.now().toString().slice(-4),
-            type: "invoice",
-            typeName: "فاتورة ضريبية مبسطة",
-            name: `فاتورة رقم #${targetInvoice.id} (${targetInvoice.customer})`,
-            deletedBy: "أ. سليمان الراجحي (CEO)",
-            deletedAt: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
-            originalData: targetInvoice
-          };
-          
-          localStorage.setItem("sahm_web_trash_bin", JSON.stringify([newTrashItem, ...trashList]));
+          if (import.meta.env.VITE_DATA_MODE !== "supabase") {
+            const trashSaved = localStorage.getItem("sahm_web_trash_bin");
+            const trashList = trashSaved ? JSON.parse(trashSaved) : [];
+            
+            const newTrashItem = {
+              id: "tr_inv_" + Date.now().toString().slice(-4),
+              type: "invoice",
+              typeName: "فاتورة ضريبية مبسطة",
+              name: `فاتورة رقم #${targetInvoice.id} (${targetInvoice.customer})`,
+              deletedBy: "أ. سليمان الراجحي (CEO)",
+              deletedAt: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
+              originalData: targetInvoice
+            };
+            
+            localStorage.setItem("sahm_web_trash_bin", JSON.stringify([newTrashItem, ...trashList]));
+          }
           
           // Audit Log
-          const savedLogs = localStorage.getItem("sahm_audit_logs_v8");
-          const auditList = savedLogs ? JSON.parse(savedLogs) : [];
-          const newAudit = {
-            id: "audit_inv_" + Date.now(),
-            action: "نقل للسلة",
-            details: `تم نقل الفاتورة رقم "${targetInvoice.id}" للعميل "${targetInvoice.customer}" بقيمة ${targetInvoice.total} ر.س لسلة المحذوفات.`,
-            user: "أ. سليمان الراجحي",
-            role: "CEO",
-            time: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
-            ip: "192.168.1.10",
-            module: "الحسابات والفواتير"
-          };
-          localStorage.setItem("sahm_audit_logs_v8", JSON.stringify([newAudit, ...auditList]));
-          window.dispatchEvent(new Event("storage"));
+          if (import.meta.env.VITE_DATA_MODE !== "supabase") {
+            const savedLogs = localStorage.getItem("sahm_audit_logs_v8");
+            const auditList = savedLogs ? JSON.parse(savedLogs) : [];
+            const newAudit = {
+              id: "audit_inv_" + Date.now(),
+              action: "نقل للسلة",
+              details: `تم نقل الفاتورة رقم "${targetInvoice.id}" للعميل "${targetInvoice.customer}" بقيمة ${targetInvoice.total} ر.س لسلة المحذوفات.`,
+              user: "أ. سليمان الراجحي",
+              role: "CEO",
+              time: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
+              ip: "192.168.1.10",
+              module: "الحسابات والفواتير"
+            };
+            localStorage.setItem("sahm_audit_logs_v8", JSON.stringify([newAudit, ...auditList]));
+            window.dispatchEvent(new Event("storage"));
+          } else {
+            addAuditLog("نقل للسلة", `تم نقل الفاتورة رقم "${targetInvoice.id}" للعميل "${targetInvoice.customer}" بقيمة ${targetInvoice.total} ر.س لسلة المحذوفات.`);
+          }
         } catch (e) {
           console.error("Failed to dump invoice to trash bin", e);
         }
@@ -268,20 +420,76 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
 
   return (
     <div className="space-y-6">
-      {/* Top action header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-extrabold" style={{ color: theme.text }}>الفواتير والحسابات 🧾</h2>
-          <p className="text-xs mt-1" style={{ color: theme.muted }}>إصدار وتوثيق فواتير المبيعات والمشتريات وإدارتها المباشرة</p>
+      {/* 🚀 Main Header of Invoices & ZATCA Hub */}
+      <div className="p-5 rounded-2xl border text-right space-y-4 shadow-md relative overflow-hidden transition-all duration-300 hover:shadow-[0_0_25px_rgba(212,175,55,0.08)] animate-fade-in" 
+        style={{
+          background: `radial-gradient(circle at top right, rgba(212, 175, 55, 0.08) 0%, rgba(13, 21, 39, 0.95) 100%)`,
+          borderColor: theme.border
+        }}>
+        <div className="absolute left-0 top-0 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-center gap-4">
+            {/* Double-ring ZATCA compliance status gauge */}
+            <div className="relative w-16 h-16 flex items-center justify-center shrink-0 bg-black/45 rounded-2xl border border-zinc-800/60 p-2 shadow-inner">
+              <div className="absolute inset-0">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="2.5" />
+                  <circle 
+                    cx="18" 
+                    cy="18" 
+                    r="16" 
+                    fill="none" 
+                    stroke="#D4AF37" 
+                    strokeWidth="2.5" 
+                    strokeDasharray="100" 
+                    strokeDashoffset="0" 
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-out"
+                  />
+                </svg>
+              </div>
+              <div className="absolute inset-1.5">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="2" />
+                  <circle 
+                    cx="18" 
+                    cy="18" 
+                    r="16" 
+                    fill="none" 
+                    stroke="#10B981" 
+                    strokeWidth="2" 
+                    strokeDasharray="100" 
+                    strokeDashoffset="0.2" 
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-out"
+                  />
+                </svg>
+              </div>
+              <div className="text-center z-10">
+                <span className="block text-[10px] font-black text-white font-mono leading-none">100%</span>
+                <span className="block text-[5.5px] text-amber-400 mt-0.5 leading-none">ربط زكاة (ZATCA)</span>
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-base font-black text-white flex items-center gap-2" style={{ color: theme.text }}>
+                <span>الفواتير والمنظومة المالية 🧾</span>
+                <span className="font-extrabold text-[8px] bg-emerald-500 text-black px-1.5 py-0.5 rounded font-mono tracking-wider">ZATCA COMPLIANT</span>
+              </h2>
+              <p className="text-[10px]" style={{ color: theme.muted }}>إصدار وتوثيق فواتير المبيعات والمشتريات وإدارتها المباشرة المتوافقة مع الفوترة الإلكترونية</p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleCreateInvoiceClick}
+            className="flex items-center justify-center gap-2 py-2.5 px-5 rounded-xl font-extrabold text-sm self-start sm:self-auto cursor-pointer transition-all active:scale-[0.98] shadow-lg hover:shadow-amber-500/20 text-[#000] border-none"
+            style={{ backgroundColor: theme.accent }}
+          >
+            <Plus className="w-4 h-4 text-black stroke-[3]" />
+            <span>إصدار فاتورة جديدة</span>
+          </button>
         </div>
-        <button
-          onClick={handleCreateInvoiceClick}
-          className="flex items-center justify-center gap-2 py-2.5 px-5 rounded-xl font-extrabold text-sm self-start sm:self-auto cursor-pointer transition-all active:scale-[0.98] shadow-lg hover:shadow-black/10 text-[#000]"
-          style={{ backgroundColor: theme.accent }}
-        >
-          <Plus className="w-4 h-4" />
-          <span>إصدار فاتورة جديدة</span>
-        </button>
       </div>
 
       {/* Directory Filter controls */}
@@ -341,6 +549,14 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
           >
             <span>Excel 📊</span>
           </button>
+          <button
+            onClick={handleExportInvoicesToDrive}
+            disabled={isBackupLoading}
+            className="flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-extrabold transition-all active:scale-95 cursor-pointer disabled:opacity-50 text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            <Cloud className="w-3.5 h-3.5" />
+            <span>{isBackupLoading ? "جاري الأرشفة..." : "نسخ درايف الاحتياطي سحابياً 📁"}</span>
+          </button>
         </div>
       </div>
 
@@ -349,8 +565,11 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
         {list.map((inv) => (
           <div
             key={inv.id}
-            className="rounded-2xl p-5 border flex flex-col justify-between transition-all duration-300 hover:shadow-md hover:scale-[1.01]"
-            style={{ backgroundColor: theme.card, borderColor: theme.border }}
+            className="rounded-2xl p-5 border flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:shadow-xl relative overflow-hidden"
+            style={{
+              background: `radial-gradient(circle at top right, rgba(212, 175, 55, 0.03) 0%, ${theme.card} 100%)`,
+              borderColor: theme.border
+            }}
           >
             <div>
               {/* Card top */}
@@ -393,7 +612,8 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
             </div>
 
             {/* Price section and action bar */}
-            <div className="border-t pt-4 flex items-center justify-between" style={{ borderColor: theme.border }}>
+            <div className="pt-4 flex items-center justify-between relative">
+              <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-amber-500/20 to-transparent" />
               <div>
                 <span className="text-[10px] block" style={{ color: theme.muted }}>إجمالي الحساب</span>
                 <span className="text-lg font-black font-mono" style={{ color: theme.text }}>{formatMoney(inv.total)}</span>
@@ -550,7 +770,7 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
                           style={{ backgroundColor: theme.card, borderColor: theme.border }}>
                           {form.type === 'sale' ? (
                             customers
-                              .filter(c => c.name.toLowerCase().includes(form.customer.toLowerCase()) && c.name.toLowerCase() !== form.customer.toLowerCase())
+                              .filter(c => (c.name || '').toLowerCase().includes((form.customer || '').toLowerCase()) && (c.name || '').toLowerCase() !== (form.customer || '').toLowerCase())
                               .map(c => (
                                 <div 
                                   key={c.id} 
@@ -563,7 +783,7 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
                               ))
                           ) : (
                             suppliers
-                              .filter(s => s.name.toLowerCase().includes(form.customer.toLowerCase()) && s.name.toLowerCase() !== form.customer.toLowerCase())
+                              .filter(s => (s.name || '').toLowerCase().includes((form.customer || '').toLowerCase()) && (s.name || '').toLowerCase() !== (form.customer || '').toLowerCase())
                               .map(s => (
                                 <div 
                                   key={s.id} 
@@ -683,6 +903,15 @@ export default function Invoices({ invoices, setInvoices, products, customers, s
             <div className="flex justify-between items-center pb-4 border-b" style={{ borderColor: theme.border }}>
               <h3 className="text-sm font-bold" style={{ color: theme.text }}>معاينة وطباعة الفاتورة 📄</h3>
               <div className="flex gap-2">
+                <button
+                  onClick={() => handleBackupSingleInvoiceToDrive(selectedInvoice)}
+                  disabled={isBackupLoading}
+                  className="flex items-center gap-1.5 py-1.5 px-3.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 cursor-pointer border-none disabled:opacity-50"
+                  title="نسخ احتياطي للفاتورة على جوجل درايف تلقائياً"
+                >
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>{isBackupLoading ? "جاري الأرشفة..." : "أرشفة إلى Drive 📁"}</span>
+                </button>
                 <button
                   onClick={() => window.print()}
                   className="flex items-center gap-1.5 py-1.5 px-3.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer border-none"

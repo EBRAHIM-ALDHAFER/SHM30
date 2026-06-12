@@ -2,10 +2,12 @@ import React, { useState, useEffect } from "react";
 import { Product, Branch, Warehouse, StockTransfer } from "../../../types";
 import { productService } from "../../../core/database/productService";
 import { auditService } from "../../../core/database/auditService";
+import { SubscriptionGuard } from "../../../core/database/subscriptionGuard";
+import { SahmDatabaseService } from "../../../core/database/dbService";
 
 const INITIAL_BRANCHES: Branch[] = [
   {
-    id: "br_riyadh_main",
+    id: "branch_riyadh_main",
     name: "فرع الرياض الرئيسي",
     city: "الرياض",
     address: "طريق الملك فهد، حي المروج",
@@ -53,7 +55,7 @@ const INITIAL_BRANCHES: Branch[] = [
 
 const INITIAL_WAREHOUSES: Warehouse[] = [
   {
-    id: "wh_central_riyadh",
+    id: "warehouse_1",
     name: "مستودع سهم المركزي - الرياض",
     type: "main",
     location: "صناعية السلي الجديدة، الرياض",
@@ -105,32 +107,43 @@ export function useProducts(
   activeWarehouseId?: string
 ) {
   // Local/Synced states from/to localStorage through service layers
+  const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
+
   const [branches, setBranches] = useState<Branch[]>(() => {
+    if (isSupabase) return INITIAL_BRANCHES;
     const saved = localStorage.getItem("sahm_web_branches");
     return saved ? JSON.parse(saved) : INITIAL_BRANCHES;
   });
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>(() => {
+    if (isSupabase) return INITIAL_WAREHOUSES;
     const saved = localStorage.getItem("sahm_web_warehouses");
     return saved ? JSON.parse(saved) : INITIAL_WAREHOUSES;
   });
 
   const [transfers, setTransfers] = useState<StockTransfer[]>(() => {
+    if (isSupabase) return [];
     const saved = localStorage.getItem("sahm_web_transfers");
     return saved ? JSON.parse(saved) : [];
   });
 
   useEffect(() => {
-    localStorage.setItem("sahm_web_branches", JSON.stringify(branches));
-  }, [branches]);
+    if (!isSupabase) {
+      localStorage.setItem("sahm_web_branches", JSON.stringify(branches));
+    }
+  }, [branches, isSupabase]);
 
   useEffect(() => {
-    localStorage.setItem("sahm_web_warehouses", JSON.stringify(warehouses));
-  }, [warehouses]);
+    if (!isSupabase) {
+      localStorage.setItem("sahm_web_warehouses", JSON.stringify(warehouses));
+    }
+  }, [warehouses, isSupabase]);
 
   useEffect(() => {
-    localStorage.setItem("sahm_web_transfers", JSON.stringify(transfers));
-  }, [transfers]);
+    if (!isSupabase) {
+      localStorage.setItem("sahm_web_transfers", JSON.stringify(transfers));
+    }
+  }, [transfers, isSupabase]);
 
   // Modals & UI States
   const [showNew, setShowNew] = useState(false);
@@ -159,7 +172,7 @@ export function useProducts(
   const [transferForm, setTransferForm] = useState({
     productId: "",
     qty: 10,
-    fromWh: activeWarehouseId || "wh_central_riyadh",
+    fromWh: activeWarehouseId || "warehouse_1",
     toWh: "wh_jeddah_sub",
     notes: ""
   });
@@ -186,7 +199,7 @@ export function useProducts(
   }, [products, selectedProduct]);
 
   // Handle Create Product
-  const saveProduct = (e: React.FormEvent) => {
+  const saveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) {
       alert("الرجاء إدخال اسم المنتج.");
@@ -198,6 +211,33 @@ export function useProducts(
     const stockNum = parseInt(form.stock) || 0;
     const skuCode = form.sku.trim() || `P${String(products.length + 1).padStart(3, '0')}`;
 
+    const tenantId = user?.tenant_id || localStorage.getItem("sahm_impersonate_tenant_id") || "tenant-default";
+    const isPlatform = ["platform_owner", "system_owner", "system_admin"].includes(String(user?.role || "").trim());
+
+    if (!isPlatform && tenantId !== "tenant-local") {
+      const guard = SubscriptionGuard.getInstance();
+      const hasAccess = await guard.canUseFeature(tenantId, "products");
+      if (!hasAccess) {
+        if (triggerNotification) {
+          triggerNotification("⚠️ هذه الميزة (إدارة المنتجات) غير متاحة في باقتك الحالية. يرجى ترقية باقتك.", "critical");
+        } else {
+          alert("⚠️ هذه الميزة (إدارة المنتجات) غير متاحة في باقتك الحالية. يرجى ترقية باقتك.");
+        }
+        return;
+      }
+
+      const limitCheck = await guard.checkLimit(tenantId, "products", products.length);
+      if (!limitCheck.allowed) {
+        const errorMsg = `⚠️ وصلت إلى الحد الأقصى للمنتجات في باقتك الحالية (الحد: ${limitCheck.limit}). تواصل مع إدارة منصة سهم للترقية.`;
+        if (triggerNotification) {
+          triggerNotification(errorMsg, "critical");
+        } else {
+          alert(errorMsg);
+        }
+        return;
+      }
+    }
+
     const newProduct: Product = {
       id: (Date.now().toString() + "_" + Math.floor(Math.random() * 100000)),
       name: form.name.trim(),
@@ -208,64 +248,92 @@ export function useProducts(
       category: form.category
     };
 
-    const newProductsList = [...products, newProduct];
-    setProducts(newProductsList);
-    productService.create(newProduct);
-    setShowNew(false);
-    
-    if (triggerNotification) {
-      triggerNotification(`تم تسجيل وإدراج صنف البضاعة ${newProduct.name} بنجاح ✅`, "success");
-    }
-    if (addAuditLog) {
-      addAuditLog("إنشاء يدوي", `تم تسجيل صنف جديد يدوياً بمسمى "${newProduct.name}" ومخزون مبدئي ${newProduct.stock}`);
-    }
+    try {
+      await productService.create(newProduct);
+      const newProductsList = [...products, newProduct];
+      setProducts(newProductsList);
+      setShowNew(false);
+      
+      if (triggerNotification) {
+        triggerNotification(`تم تسجيل وإدراج صنف البضاعة ${newProduct.name} بنجاح ✅`, "success");
+      }
+      if (addAuditLog) {
+        addAuditLog("إنشاء يدوي", `تم تسجيل صنف جديد يدوياً بمسمى "${newProduct.name}" ومخزون مبدئي ${newProduct.stock}`);
+      }
 
-    // Reset form
-    setForm({
-      name: "",
-      sku: "",
-      price: "",
-      cost: "",
-      stock: "",
-      category: "عطور ودخون"
-    });
+      // Increment usage
+      if (!isPlatform && tenantId !== "tenant-local") {
+        try {
+          const db = SahmDatabaseService.getInstance();
+          await db.incrementSubscriptionUsage(tenantId, user?.company_id || user?.organization_id || "comp-default", "products_count", 1);
+        } catch (uErr) {
+          console.warn("[useProducts] Failed to increment products count in usage:", uErr);
+        }
+      }
+
+      // Reset form
+      setForm({
+        name: "",
+        sku: "",
+        price: "",
+        cost: "",
+        stock: "",
+        category: "عطور ودخون"
+      });
+    } catch (err: any) {
+      console.error(err);
+      if (triggerNotification) {
+        triggerNotification(`تعذر حفظ المنتج: ${err.message || "خطأ في الاتصال بقاعدة البيانات"}`, "critical");
+      }
+    }
   };
 
   // Handle Delete Product
-  const deleteProduct = (prodId: string) => {
+  const deleteProduct = async (prodId: string) => {
     if (confirm("هل تريد بالتأكيد نقل هذا الصنف إلى سلة المحذوفات المؤقتة؟")) {
       const prodToDelete = products.find(p => p.id === prodId);
       if (prodToDelete) {
         try {
-          const trashSaved = localStorage.getItem("sahm_web_trash_bin");
-          const trashList = trashSaved ? JSON.parse(trashSaved) : [];
+          await productService.delete(prodId);
           
-          const newTrashItem = {
-            id: "tr_prod_" + Date.now().toString().slice(-4),
-            type: "product",
-            typeName: "منتج مستودع",
-            name: prodToDelete.name,
-            deletedBy: user?.username || "مدير النظام",
-            deletedAt: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
-            originalData: prodToDelete
-          };
-          
-          localStorage.setItem("sahm_web_trash_bin", JSON.stringify([newTrashItem, ...trashList]));
-          auditService.createAuditLog(
-            "نقل للمهملات",
-            `تم حقل صنف "${prodToDelete.name}" مؤقتاً لسلة المحذوفات.`,
-            user?.username || "مدير النظام"
-          );
-        } catch (e) {
-          console.error(e);
+          const filtered = products.filter(p => p.id !== prodId);
+          setProducts(filtered);
+
+          try {
+            if (!isSupabase) {
+              const trashSaved = localStorage.getItem("sahm_web_trash_bin");
+              const trashList = trashSaved ? JSON.parse(trashSaved) : [];
+              
+              const newTrashItem = {
+                id: "tr_prod_" + Date.now().toString().slice(-4),
+                type: "product",
+                typeName: "منتج مستودع",
+                name: prodToDelete.name,
+                deletedBy: user?.username || "مدير النظام",
+                deletedAt: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
+                originalData: prodToDelete
+              };
+              
+              localStorage.setItem("sahm_web_trash_bin", JSON.stringify([newTrashItem, ...trashList]));
+            }
+            auditService.createAuditLog(
+              "نقل للمهملات",
+              `تم حقل صنف "${prodToDelete.name}" مؤقتاً لسلة المحذوفات.`,
+              user?.username || "مدير النظام"
+            );
+          } catch (e) {
+            console.error(e);
+          }
+
+          if (triggerNotification) {
+            triggerNotification("تم نقل الصنف إلى سلة المحذوفات 🗑️", "success");
+          }
+        } catch (err: any) {
+          console.error(err);
+          if (triggerNotification) {
+            triggerNotification(`تعذر حذف المنتج: ${err.message || "خطأ في الاتصال بقاعدة البيانات"}`, "critical");
+          }
         }
-      }
-      
-      const filtered = products.filter(p => p.id !== prodId);
-      setProducts(filtered);
-      productService.delete(prodId);
-      if (triggerNotification) {
-        triggerNotification("تم نقل الصنف إلى سلة المحذوفات 🗑️", "success");
       }
     }
   };

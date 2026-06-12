@@ -49,7 +49,7 @@ export default function Customers({ customers, setCustomers, theme, openUnifiedA
     .filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone.includes(searchTerm));
 
   const formatMoney = (n: number) => {
-    return n.toLocaleString("ar-SA") + " ر.س";
+    return (n ?? 0).toLocaleString("ar-SA") + " ر.س";
   };
 
   const exportColumns = [
@@ -112,36 +112,42 @@ export default function Customers({ customers, setCustomers, theme, openUnifiedA
       const custToDelete = customers.find(c => c.id === custId);
       if (custToDelete) {
         try {
-          const trashSaved = localStorage.getItem("sahm_web_trash_bin");
-          const trashList = trashSaved ? JSON.parse(trashSaved) : [];
-          
-          const newTrashItem = {
-            id: "tr_cust_" + Date.now().toString().slice(-4),
-            type: "customer",
-            typeName: "ملف عميل VIP",
-            name: `${custToDelete.name} (${custToDelete.city || "الرياض"})`,
-            deletedBy: "أ. سليمان الراجحي (CEO)",
-            deletedAt: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
-            originalData: custToDelete
-          };
-          
-          localStorage.setItem("sahm_web_trash_bin", JSON.stringify([newTrashItem, ...trashList]));
+          if (import.meta.env.VITE_DATA_MODE !== "supabase") {
+            const trashSaved = localStorage.getItem("sahm_web_trash_bin");
+            const trashList = trashSaved ? JSON.parse(trashSaved) : [];
+            
+            const newTrashItem = {
+              id: "tr_cust_" + Date.now().toString().slice(-4),
+              type: "customer",
+              typeName: "ملف عميل VIP",
+              name: `${custToDelete.name} (${custToDelete.city || "الرياض"})`,
+              deletedBy: "أ. سليمان الراجحي (CEO)",
+              deletedAt: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
+              originalData: custToDelete
+            };
+            
+            localStorage.setItem("sahm_web_trash_bin", JSON.stringify([newTrashItem, ...trashList]));
+          }
           
           // Audit Log integration
-          const savedLogs = localStorage.getItem("sahm_audit_logs_v8");
-          const auditList = savedLogs ? JSON.parse(savedLogs) : [];
-          const newAudit = {
-            id: "audit_cust_" + Date.now(),
-            action: "نقل للسلة",
-            details: `قام الرئيس التنفيذي بنقل العميل "${custToDelete.name}" لسلة المحذوفات المؤقتة لتسوية الحساب الفيدرالي.`,
-            user: "أ. سليمان الراجحي",
-            role: "CEO",
-            time: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
-            ip: "192.168.1.10",
-            module: "إدارة العملاء والـ CRM"
-          };
-          localStorage.setItem("sahm_audit_logs_v8", JSON.stringify([newAudit, ...auditList]));
-          window.dispatchEvent(new Event("storage"));
+          if (import.meta.env.VITE_DATA_MODE !== "supabase") {
+            const savedLogs = localStorage.getItem("sahm_audit_logs_v8");
+            const auditList = savedLogs ? JSON.parse(savedLogs) : [];
+            const newAudit = {
+              id: "audit_cust_" + Date.now(),
+              action: "نقل للسلة",
+              details: `قام الرئيس التنفيذي بنقل العميل "${custToDelete.name}" لسلة المحذوفات المؤقتة لتسوية الحساب الفيدرالي.`,
+              user: "أ. سليمان الراجحي",
+              role: "CEO",
+              time: new Date().toLocaleTimeString("ar-SA") + " - " + new Date().toLocaleDateString("ar-SA"),
+              ip: "192.168.1.10",
+              module: "إدارة العملاء والـ CRM"
+            };
+            localStorage.setItem("sahm_audit_logs_v8", JSON.stringify([newAudit, ...auditList]));
+            window.dispatchEvent(new Event("storage"));
+          } else {
+            addAuditLog("نقل للسلة", `قام الرئيس التنفيذي بنقل العميل "${custToDelete.name}" لسلة المحذوفات المؤقتة لتسوية الحساب الفيدرالي.`);
+          }
         } catch (e) {
           console.error("Failed to dump customer to trash bin", e);
         }

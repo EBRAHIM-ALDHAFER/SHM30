@@ -3,6 +3,8 @@ export interface InvoiceItem {
   qty: number;
   price: number;
   total: number;
+  product_id?: string;
+  sku?: string;
 }
 
 export interface Invoice {
@@ -16,6 +18,28 @@ export interface Invoice {
   company_id?: string;
   store_id?: string;
   branch_id?: string;
+  tenant_id?: string;
+  discount?: number;
+  pos_id?: string;
+  posId?: string;
+  warehouse_id?: string;
+  warehouseId?: string;
+  warehouse?: string;
+  shift_id?: string;
+  shiftId?: string;
+  payment_method?: string;
+  paymentMethod?: string;
+  cash_amount?: number;
+  cashAmount?: number;
+  card_amount?: number;
+  cardAmount?: number;
+  transfer_amount?: number;
+  transferAmount?: number;
+  wallet_amount?: number;
+  walletAmount?: number;
+  sale_id?: string;
+  saleId?: string;
+  created_at?: string;
 }
 
 export interface Product {
@@ -31,6 +55,10 @@ export interface Product {
   company_id?: string;
   store_id?: string;
   branch_id?: string;
+  tenant_id?: string;
+  pos_id?: string;
+  warehouse_id?: string;
+  shift_id?: string;
   
   // Advanced AI Product Lifecycle Engine Optional Fields
   subtitle?: string;
@@ -92,6 +120,12 @@ export interface AddressProfile {
   gpsCoordinates?: string;    // إحداثيات GPS اختيارية
   latitude?: string;          // خط العرض اختياري
   longitude?: string;         // خط الطول اختياري
+  shortCode?: string;         // الاختصار الموحد للقبول
+  gps?: {
+    lat: string;
+    lng: string;
+  };
+  mapUrl?: string;            // رابط الموقع
 }
 
 export interface Customer {
@@ -121,21 +155,42 @@ export interface Supplier {
 }
 
 export interface User {
-  id: number;
-  username: string;
-  name: string;
-  role: string;
-  avatar: string;
-  addressProfile?: AddressProfile;
+  id: string | number;
+  tenant_id?: string;
+  organization_id?: string;
+  company_id?: string;
+  fullName: string; // الاسم الكامل
+  username: string; // اسم المستخدم
+  email: string; // البريد الإلكتروني
+  phone?: string; // رقم الجوال
+  passwordHash?: string; // كلمة مرور مشفرة/مسجلة
+  password?: string; // كلمة المرور الصافية
+  role: "tenant_owner" | "admin" | "branch_manager" | "inventory_manager" | "cashier" | "accountant" | "marketer" | "support" | "custom" | string;
+  department?: "management" | "sales" | "warehouse" | "support" | string; // القسم: إدارة، مبيعات، مخازن، دعم فني
+  status: "active" | "disabled" | "pending"; // نشط / موقوف / بانتظار التفعيل
+  emailVerified: boolean; // البريد موثق / غير موثق
+  mustChangePassword: boolean; // إجبار المستخدم على تغيير كلمة المرور عند أول دخول
+  allowedStoreIds: string[]; // المتاجر المسموحة
+  allowedBranchIds: string[]; // الفروع المسموحة
+  allowedWarehouseIds: string[]; // المستودعات المسموحة
+  allowedPosIds: string[]; // نقاط البيع المسموحة
+  permissions: string[]; // الصلاحيات التفصيلية
+  lastLoginAt?: string; // آخر دخول
+  createdAt: string; // تاريخ الإنشاء
+  createdBy: string; // أنشئ بواسطة
+  workLocationType?: "hq" | "store" | "branch" | "warehouse" | "pos" | "remote"; // نوع موقع العمل
+  workLocationId?: string; // معرف موقع العمل
+  disableReason?: string; // سبب التعطيل المبرر
+
+  // Compatibility fields for legacy code references
+  name?: string;
+  avatar?: string;
   imageUrl?: string;
-  phone?: string;
-  email?: string;
   company?: string;
   storeId?: string;
   branchId?: string;
   warehouseId?: string;
   posId?: string;
-  permissions?: string[];
   allowedStores?: string[];
   allowedBranches?: string[];
   allowedWarehouses?: string[];
@@ -144,6 +199,22 @@ export interface User {
   defaultBranchId?: string;
   defaultWarehouseId?: string;
   defaultPosId?: string;
+  addressProfile?: AddressProfile;
+  shortNationalAddress?: string;
+  address?: {
+    shortCode: string;
+    buildingNumber: string;
+    streetName: string;
+    district: string;
+    city: string;
+    postalCode: string;
+    additionalNumber: string;
+    gps: {
+      lat: string;
+      lng: string;
+    };
+    mapUrl: string;
+  };
 }
 
 export type ThemeType = 'dark' | 'light' | 'royal' | 'executive' | 'luxury' | 'saudi' | 'neon_ai' | 'custom';
@@ -188,6 +259,7 @@ export interface Branch {
   branch_id?: string;
   store_id?: string;
   company_id?: string;
+  tenant_id?: string;
   branch_name?: string;
   linked_warehouse_id?: string;
   status?: string;
@@ -208,6 +280,8 @@ export interface Warehouse {
   items: WarehouseItem[];
   store_id?: string;
   isActive?: boolean;
+  tenant_id?: string;
+  company_id?: string;
 }
 
 export interface StockTransfer {
@@ -346,6 +420,8 @@ export interface StoreDocument {
 
 export interface StoreProfile {
   id: string;
+  tenant_id?: string;
+  company_id?: string;
   name: string;
   tradeName: string;
   companyLegalName: string;
@@ -390,6 +466,267 @@ export interface StoreProfile {
   isActive: boolean;
   isDefault: boolean;
   isArchived?: boolean;
+  companyId?: string; // Links the store/sale channel to an establishment/company
 }
+
+export interface CompanyProfile {
+  id: string;
+  tenant_id?: string;
+  name: string; // الاسم التجاري للمنشأة
+  companyLegalName: string; // الاسم القانوني للشركة / الكيان
+  crNumber: string; // رقم السجل التجاري
+  crDate: string; // تاريخ السجل التجاري
+  crExpiryDate: string; // تاريخ انتهاء السجل التجاري
+  vatNumber: string; // الرقم الضريبي
+  unifiedNumber700: string; // الرقم الموحد 700
+  address: string; // العنوان الوطني للمنشأة
+  managerName: string; // المالك / المدير المسؤول
+  phone: string; // رقم التواصل للمنشأة
+  email: string; // البريد الإلكتروني للمنشأة
+  bankAccount: string; // الحساب البنكي / الإيبان
+  status: "active" | "suspended" | "draft"; // الحالة الرسمية للمنشأة
+  subscriptionPlan: string; // نوع الباقة والاشتراك (e.g. باقة دقة الاحترافية)
+  logoUrl?: string; // شعار المنشأة
+  coverUrl?: string; // غلاف المنشأة
+  invoiceLogoUrl?: string; // شعار الفواتير للمنشأة
+  stampUrl?: string; // ختم المنشأة الملون
+  country?: string; // دولة المنشأة
+  country_code?: string; // رمز الدولة
+  phone_country_code?: string; // مفتاح الاتصال
+  phone_e164?: string; // رقم الهاتف بصيغة e164
+  createdAt: string; // تاريخ التأسيس في النظام
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  name_ar: string;
+  name_en: string;
+  description: string;
+  monthly_price: number;
+  yearly_price: number;
+  currency: string;
+  status: "active" | "inactive" | "hidden";
+  is_featured: boolean;
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PlanFeature {
+  id: string;
+  plan_id: string;
+  feature_key: string;
+  enabled: boolean;
+  limit_value: number;
+  is_unlimited: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TenantSubscription {
+  id: string;
+  tenant_id: string;
+  company_id: string;
+  plan_id: string;
+  status: "trial" | "active" | "suspended" | "expired" | "cancelled";
+  start_date: string;
+  trial_ends_at: string;
+  current_period_start: string;
+  current_period_end: string;
+  billing_cycle: "monthly" | "yearly";
+  custom_price?: number;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SubscriptionUsage {
+  id: string;
+  tenant_id: string;
+  company_id: string;
+  period_month: string;
+  invoices_count: number;
+  products_count: number;
+  users_count: number;
+  branches_count: number;
+  stores_count: number;
+  pos_count: number;
+  ai_requests_count: number;
+  storage_used_mb: number;
+  updated_at?: string;
+}
+
+export interface TenantFeatureOverride {
+  id: string;
+  tenant_id: string;
+  company_id: string;
+  feature_key: string;
+  enabled: boolean;
+  limit_value: number;
+  is_unlimited: boolean;
+  reason: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProductStudioSession {
+  id: string;
+  tenant_id: string;
+  company_id: string;
+  store_id?: string;
+  branch_id?: string;
+  product_id?: string;
+  category_id?: string;
+  status: 'draft' | 'processing' | 'ready' | 'approved' | 'failed';
+  current_step: string;
+  brand_voice?: string;
+  target_market?: string;
+  target_audience?: string;
+  sales_channel?: string;
+  original_image_url?: string;
+  approved_text_version_id?: string;
+  approved_image_asset_ids?: string[];
+  approved_video_asset_ids?: string[];
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  product_name?: string;
+  price?: number;
+  cost?: number;
+  sku?: string;
+  quantity?: number;
+  user_notes?: string;
+}
+
+export interface BrandProfile {
+  id: string;
+  tenant_id: string;
+  company_id: string;
+  brand_name: string;
+  primary_color?: string;
+  secondary_color?: string;
+  accent_color?: string;
+  fonts?: Record<string, any>;
+  tone_of_voice?: string;
+  forbidden_words?: string[];
+  preferred_words?: string[];
+  logo_url?: string;
+  guidelines?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProductAiAnalysis {
+  id: string;
+  session_id: string;
+  tenant_id: string;
+  product_id?: string;
+  analysis_json: Record<string, any>;
+  product_type: string;
+  suggested_category: string;
+  target_audience: string;
+  strengths: string[];
+  weaknesses: string[];
+  recommendations: string[];
+  score: number;
+  created_at?: string;
+}
+
+export interface ProductContentVersion {
+  id: string;
+  session_id: string;
+  tenant_id: string;
+  product_id?: string;
+  version_number: number;
+  style: string;
+  language: string;
+  title: string;
+  product_name: string;
+  short_description: string;
+  long_description: string;
+  features: string[];
+  benefits: string[];
+  seo_keywords: string[];
+  captions: {
+    instagram?: string;
+    tiktok?: string;
+    whatsapp?: string;
+    salla?: string;
+    zid?: string;
+    amazon?: string;
+  };
+  ad_copy: {
+    ad_title?: string;
+    ad_body?: string;
+  };
+  cta: string;
+  status: 'draft' | 'processing' | 'ready' | 'approved' | 'failed';
+  is_approved: boolean;
+  prompt_used?: string;
+  ai_model?: string;
+  created_at?: string;
+}
+
+export interface ProductAsset {
+  id: string;
+  session_id: string;
+  tenant_id: string;
+  company_id?: string;
+  product_id?: string;
+  category_id?: string;
+  asset_type: 'image' | 'image_prompt' | 'video' | 'video_prompt';
+  asset_purpose: 'Hero' | 'Features' | 'Offer' | 'Story' | 'ShortVideo' | 'DeepVideo';
+  title?: string;
+  url?: string;
+  content?: string;
+  prompt_used?: string;
+  generation_settings?: Record<string, any>;
+  dimensions?: '1:1' | '4:5' | '9:16' | '16:9' | 'Banner';
+  file_size?: number;
+  mime_type?: string;
+  status: 'draft' | 'processing' | 'ready' | 'approved' | 'failed';
+  is_approved: boolean;
+  storage_path?: string;
+  created_by?: string;
+  created_at?: string;
+}
+
+export interface ProductPublishPackage {
+  id: string;
+  session_id: string;
+  tenant_id: string;
+  product_id: string;
+  channel: 'InternalStore' | 'Salla' | 'Zid' | 'Shopify' | 'Instagram' | 'TikTok' | 'WhatsApp' | 'Snapchat' | 'Amazon' | 'AdCampaign';
+  title?: string;
+  description?: string;
+  caption?: string;
+  hashtags?: string[];
+  cta?: string;
+  selected_asset_ids?: string[];
+  status: 'draft' | 'reviewed' | 'approved';
+  reviewed_by?: string;
+  reviewed_at?: string;
+  created_at?: string;
+}
+
+export interface ProductQualityReview {
+  id: string;
+  session_id: string;
+  tenant_id: string;
+  product_id?: string;
+  overall_score: number;
+  content_score: number;
+  image_score: number;
+  video_score: number;
+  brand_score: number;
+  persuasion_score: number;
+  positives: string[];
+  negatives: string[];
+  recommendations: string[];
+  status: 'ready' | 'needs_improvement' | 'rejected';
+  created_at?: string;
+}
+
+
 
 

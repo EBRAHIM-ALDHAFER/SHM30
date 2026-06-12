@@ -18,13 +18,15 @@ export interface ProductTimelineEvent {
 const LS_KEY = "sahm_product_timeline_events";
 
 const getMode = () => {
-  return (import.meta as any).env?.VITE_DATA_MODE || (typeof localStorage !== "undefined" && localStorage.getItem("sahm_supabase_connected") === "true" ? "production" : "demo");
+  const mode = import.meta.env.VITE_DATA_MODE;
+  if (mode === "supabase" || mode === "production") return "production";
+  return "demo";
 };
 
 export const productTimelineService = {
   getAll: async (activeStoreId?: string): Promise<ProductTimelineEvent[]> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.getProductTimelineEvents(activeStoreId);
     }
     try {
@@ -46,7 +48,7 @@ export const productTimelineService = {
 
   create: async (item: ProductTimelineEvent): Promise<ProductTimelineEvent> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveProductTimelineEvent(item);
     }
     try {
@@ -68,7 +70,7 @@ export const productTimelineService = {
     if (!item) return null;
     const updated = { ...item, ...updates };
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveProductTimelineEvent(updated);
     }
     try {
@@ -82,7 +84,7 @@ export const productTimelineService = {
 
   delete: async (id: string): Promise<boolean> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.deleteProductTimelineEvent(id);
     }
     try {

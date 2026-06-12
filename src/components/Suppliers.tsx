@@ -61,7 +61,7 @@ export default function Suppliers({ suppliers, setSuppliers, invoices, theme, op
     );
 
   const formatMoney = (n: number) => {
-    return Math.abs(n).toLocaleString("ar-SA") + " ر.س";
+    return Math.abs(n ?? 0).toLocaleString("ar-SA") + " ر.س";
   };
 
   const exportColumns = [

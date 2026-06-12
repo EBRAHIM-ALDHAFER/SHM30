@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Product, ThemeColors, User } from "../types";
+import { SubscriptionGuard } from "../core/database/subscriptionGuard";
+import { SahmDatabaseService } from "../core/database/dbService";
 import { 
   Sparkles, Upload, RotateCcw, Check, X, Camera, Zap, FileText, 
   ArrowRight, MessageSquare, Megaphone, Copy, CheckCheck, Landmark, 
@@ -14,6 +16,7 @@ import { competitorService } from "../core/database/competitorService";
 import { productTimelineService } from "../core/database/productTimelineService";
 import { auditService } from "../core/database/auditService";
 import { integrationsService } from "../core/database/integrationsService";
+import { getMediaCenterFiles } from "../utils/safeStorage";
 
 interface AIProductBuilderProps {
   products: Product[];
@@ -110,58 +113,7 @@ export default function AIProductBuilder({
   const [showMediaModal, setShowMediaModal] = useState(false);
   const [mediaSearch, setMediaSearch] = useState("");
   const [mediaFiles] = useState(() => {
-    try {
-      const saved = localStorage.getItem("sahm_media_center_files");
-      return saved ? JSON.parse(saved) : [
-        {
-          id: "m1",
-          name: "دهن عود كلمنتان الملكي.jpg",
-          type: "image",
-          category: "product",
-          url: "https://images.unsplash.com/photo-1616949755610-8c9bbc08f138?auto=format&fit=crop&q=80&w=300",
-          size: "١.٢ ميجابايت",
-          date: "٢٠٢٦/٠٦/٠٢"
-        },
-        {
-          id: "m2",
-          name: "زعفران ناقيل سوبر فاخر.jpg",
-          type: "image",
-          category: "product",
-          url: "https://images.unsplash.com/photo-1509358271058-acd22cc93898?auto=format&fit=crop&q=80&w=300",
-          size: "٨٥٠ كيلوبايت",
-          date: "٢٠٢٦/٠٦/٠١"
-        },
-        {
-          id: "m3",
-          name: "سند استلام ضريبة القيمة المضافة Zakat.pdf",
-          type: "pdf",
-          category: "documents",
-          url: "#",
-          size: "٢.٤ ميجابايت",
-          date: "٢٠٢٦/٠٥/٢٨"
-        },
-        {
-          id: "m4",
-          name: "رمز استجابة الفاتورة الضريبية المعتمد Zatca QR.png",
-          type: "qr",
-          category: "documents",
-          url: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=SahmERP-310499221100003",
-          size: "٤٥ كيلوبايت",
-          date: "٢٠٢٦/٠٦/٠٢"
-        },
-        {
-          id: "m5",
-          name: "شعار متجر مراسيم الطيب الرسمي.png",
-          type: "image",
-          category: "templates",
-          url: "https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&q=80&w=200",
-          size: "٣٢٠ كيلوبايت",
-          date: "٢٠٢٦/٠٥/١٥"
-        }
-      ];
-    } catch {
-      return [];
-    }
+    return getMediaCenterFiles();
   });
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [productExternalLink, setProductExternalLink] = useState<string>("");
@@ -173,6 +125,11 @@ export default function AIProductBuilder({
   const [selectedApprovalType, setSelectedApprovalType] = useState<"only" | "publish" | "draft">("only");
   const [isApproving, setIsApproving] = useState<boolean>(false);
   const [approveError, setApproveError] = useState<string | null>(null);
+
+  // Mandatory fields for Smart Product Creation (Requirement 1)
+  const [mandatoryName, setMandatoryName] = useState("");
+  const [mandatoryCategory, setMandatoryCategory] = useState("عطور ودخون");
+  const [customCategory, setCustomCategory] = useState("");
   
   // All Extensive review fields proposed by AI
   const [basicInfo, setBasicInfo] = useState({
@@ -445,9 +402,64 @@ export default function AIProductBuilder({
     });
   };
 
-  const executeAIAnalysis = () => {
-    if (images.length === 0 && !productExternalLink) {
-      triggerNotification("الرجاء إمداد المحرك بصورة واحدة على الأقل أو رابط منتج للتحليل السحابي ⚡", "error");
+  const checkAiPermission = async (featureKey: "ai_product" | "ai_image" | "ai_video"): Promise<boolean> => {
+    const builderCompanyId = currentUser?.company_id || currentUser?.organization_id || "";
+    if (import.meta.env.VITE_DATA_MODE === "supabase" && (!builderCompanyId || builderCompanyId === "comp-default")) {
+      triggerNotification("تعذر تنفيذ العملية: لا يوجد معرف منشأة صالح.", "error");
+      return false;
+    }
+
+    const tenantId = currentUser?.tenant_id || localStorage.getItem("sahm_impersonate_tenant_id") || "tenant-default";
+    const isPlatform = ["platform_owner", "system_owner", "system_admin"].includes(String(currentUser?.role || "").trim());
+    if (isPlatform || tenantId === "tenant-local") return true;
+
+    const guard = SubscriptionGuard.getInstance();
+    const hasAI = await guard.canUseFeature(tenantId, featureKey);
+    if (!hasAI) {
+      triggerNotification("⚠️ هذه الميزة غير متاحة في باقتك الحالية.", "critical");
+      return false;
+    }
+
+    const currentMonth = new Date().toISOString().substring(0, 7);
+    const db = SahmDatabaseService.getInstance();
+    const usage = await db.getSubscriptionUsage(tenantId, currentMonth);
+    const aiRequestsUsed = usage ? (usage.ai_requests_count || 0) : 0;
+    
+    const check = await guard.checkLimit(tenantId, "ai_requests", aiRequestsUsed);
+    if (!check.allowed) {
+      triggerNotification(`⚠️ لقد تجاوزت حد طلبات الذكاء الاصطناعي الشهري المسموح به في باقتك الحالية (الحد: ${check.limit}).`, "critical");
+      return false;
+    }
+
+    try {
+      await db.incrementSubscriptionUsage(tenantId, currentUser?.company_id || "comp-default", "ai_requests_count", 1);
+    } catch (uErr) {
+      console.warn("[AIProductBuilder] Failed to increment AI requests count in usage:", uErr);
+    }
+
+    return true;
+  };
+
+  const executeAIAnalysis = async () => {
+    // 1. Validate Product Name
+    if (!mandatoryName.trim()) {
+      triggerNotification("⚠️ حقل الاسم إلزامي! يرجى كتابة اسم الصنف قبل بدء التحليل الذكي.", "error");
+      return;
+    }
+
+    const allowed = await checkAiPermission("ai_product");
+    if (!allowed) return;
+
+    // 2. Validate Category Selection
+    const finalCategory = mandatoryCategory === "custom" ? customCategory.trim() : mandatoryCategory;
+    if (!finalCategory) {
+      triggerNotification("⚠️ يرجى اختيار نوع الصنف / التصنيف أو كتابة تصنيف مخصص مسموح.", "error");
+      return;
+    }
+
+    // 3. Validate MANDATORY Product Image upload (صورة الصنف إلزامية في مسار الصنف الذكي)
+    if (images.length === 0) {
+      triggerNotification("📸 صورة الصنف إلزامية! الرجاء رفع صورة المنتج لتفعيل مسار التحليل الذكي للصنف.", "error");
       return;
     }
 
@@ -465,13 +477,13 @@ export default function AIProductBuilder({
       const randomSku = "SKU-OUD-" + Math.floor(1000 + Math.random() * 9000);
       
       setBasicInfo({
-        name: "دهن عود كلمبوري ميثاق النخبة ✨ Custom",
-        subtitle: "عود كلمبوري صافي ١٠٠٪ معتق للفاخرين والوجهاء",
-        category: "عطور ودخون",
+        name: mandatoryName.trim(),
+        subtitle: `منتج فاخر عالي الجودة من فئة ${finalCategory}`,
+        category: finalCategory,
         localCategory: "مكحلة الطيب الفاخرة",
         brand: "ميثاق الطيب",
-        shortDescription: "مستخلص غابات كمبوديا العتيقة بعبق ملكي فواح وثبات متناهي.",
-        longDescription: "عود غني مصفى بإنضاج طبيعي يتجاوز ٨ أشهر في قوارير رصاصية معزولة عن النور ليدوم عبقه الفاخر طويلاً على الثياب والمجالس الفارهة."
+        shortDescription: `منتج مصفى ينتمي لقسم ${finalCategory} بإنضاج فائق وتأثير عميق.`,
+        longDescription: `منتج أصيل بوزن ومعايير مدققة ممتازة، تمت دراسته عبر محرك سهم الذكي وتصنيفه في قسم ${finalCategory}. مناسب لكافة الاستخدامات اليومية والمجالس الخاصة.`
       });
 
       setPrices({
@@ -633,7 +645,10 @@ export default function AIProductBuilder({
   };
 
   // SEO Optimizer Smart Assist
-  const handleAIOptimizeSEO = () => {
+  const handleAIOptimizeSEO = async () => {
+    const allowed = await checkAiPermission("ai_product");
+    if (!allowed) return;
+
     const slugGen = (basicInfo.name || "product")
       .toLowerCase()
       .trim()
@@ -652,7 +667,10 @@ export default function AIProductBuilder({
   };
 
   // Smart advertising campaigns engine modal
-  const handleAICreateCampaign = () => {
+  const handleAICreateCampaign = async () => {
+    const allowed = await checkAiPermission("ai_product");
+    if (!allowed) return;
+
     setMarketing({
       shortAd: `فرصة دهن النخبة الكبرى 👑 عطر ${basicInfo.name || "الكلمبوري الفاخر"} متوفر بخصم ${prices.discountPrice} ر.س ومخزون حصري!`,
       adDescription: `تألق بحضور فريد يجتذب الأنظار مع عبق ميثاق الاستثنائي المصنع يدوياً بالكامل. توصيل مجاني لباب المنزل وضمان مالي ذهبي عالي الثقة.`,
@@ -1193,15 +1211,18 @@ export default function AIProductBuilder({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
                 
-                {/* Visual Image Drag Zone */}
-                <div className="p-8 border-2 border-dashed border-slate-800 hover:border-amber-500/40 rounded-2xl transition-all bg-slate-900/30 flex flex-col items-center justify-center text-center gap-4">
+                {/* Visual Image Drag Zone (Requirement 3: Mandatory in smart track) */}
+                <div className={`p-8 border-2 border-dashed rounded-2xl transition-all bg-slate-900/30 flex flex-col items-center justify-center text-center gap-4 ${images.length === 0 ? "border-amber-500/30 hover:border-amber-500 animate-pulse" : "border-slate-800 hover:border-amber-500/40"}`}>
                   <div className="w-14 h-14 rounded-full bg-slate-950/60 border border-slate-800 flex items-center justify-center shadow">
-                    <Camera className="w-7 h-7 text-amber-500 animate-pulse" />
+                    <Camera className="w-7 h-7 text-amber-500" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-black text-gray-200">الرفع المتعدد لصور وبوسترات المنتج</h3>
+                    <h3 className="text-xs font-black text-gray-200 flex items-center gap-1 justify-center">
+                      <span className="text-rose-500 font-black">*</span>
+                      <span>رفع صورة الصنف (مرفق إلزامي)</span>
+                    </h3>
                     <p className="text-[10px] text-gray-500 mt-1 max-w-xs mx-auto leading-relaxed">
-                      ارفع لقطة وحيدة أو باقة صور للتعبئة ومزامنتها بمركز الأصول وتوليد الخصائص البصرية.
+                      ارفع لقطة واضحة ومستقلة للمنتج لتسجيل وتوليد البوسترات الدعائية والخصائص المظهرية.
                     </p>
                   </div>
 
@@ -1262,45 +1283,82 @@ export default function AIProductBuilder({
                   />
                 </div>
 
-                {/* Alternative sources Inputs */}
-                <div className="p-6 rounded-2xl border border-slate-800 bg-slate-950/20 flex flex-col justify-between space-y-4">
-                  
-                  <div className="space-y-3 text-right">
-                    <h4 className="text-xs font-black text-white">🔗 استيراد بديل من رابط منتج أو فيديو:</h4>
-                    
-                    <div>
-                      <label className="block text-[10px] text-gray-400 mb-1">رابط المنتج (سلة/زد/شوبيفاي):</label>
-                      <input 
-                        type="url"
-                        placeholder="https://salla.sa/mithaq-store/p-984..."
-                        value={productExternalLink}
-                        onChange={(e) => setProductExternalLink(e.target.value)}
-                        className="w-full text-xs py-2 px-3 rounded-lg border border-slate-800 bg-slate-950/90 text-left font-mono outline-none text-white focus:border-amber-500"
-                      />
-                    </div>
+                 {/* Mandatory Product Metadata Form Card (Requirements 1, 2, 3) */}
+                 <div className="p-6 rounded-2xl border border-amber-500/30 bg-amber-500/[0.02] flex flex-col justify-between space-y-6 text-right" style={{ direction: "rtl" }}>
+                   
+                   <div className="space-y-4">
+                     <div className="flex items-center gap-2 border-b border-slate-800/80 pb-2">
+                       <Sparkles className="w-4 h-4 text-amber-500" />
+                       <h4 className="text-xs font-black text-white">البيانات الإلزامية لتأسيس الصنف الذكي:</h4>
+                     </div>
+                     
+                     {/* 1. Product Name */}
+                     <div className="space-y-1.5">
+                       <label className="block text-[10.5px] text-gray-300 font-bold flex items-center gap-1">
+                         <span className="text-rose-500 font-black">*</span>
+                         <span>اسم الصنف التجاري الكامل:</span>
+                       </label>
+                       <input 
+                         type="text"
+                         required
+                         placeholder="مثال: عطر ورد الطائف 100ml"
+                         value={mandatoryName}
+                         onChange={(e) => setMandatoryName(e.target.value)}
+                         className="w-full text-xs py-2.5 px-3.5 rounded-xl border border-slate-800 bg-slate-950 font-medium outline-none text-white focus:border-amber-500 transition-all text-right placeholder:text-gray-600"
+                       />
+                     </div>
 
-                    <div>
-                      <label className="block text-[10px] text-gray-400 mb-1">رابط فيديو الصنف (تيك توك/يوتيوب):</label>
-                      <input 
-                        type="url"
-                        placeholder="https://tiktok.com/@mithaq/video/..."
-                        value={videoUrl}
-                        onChange={(e) => setVideoUrl(e.target.value)}
-                        className="w-full text-xs py-2 px-3 rounded-lg border border-slate-800 bg-slate-950 text-left font-mono outline-none text-white focus:border-amber-500"
-                      />
-                    </div>
-                  </div>
+                     {/* 2. Product Category Dropdown */}
+                     <div className="space-y-1.5">
+                       <label className="block text-[10.5px] text-gray-300 font-bold flex items-center gap-1">
+                         <span className="text-rose-500 font-black">*</span>
+                         <span>نوع الصنف / التصنيف المعتمد:</span>
+                       </label>
+                       <select
+                         value={mandatoryCategory}
+                         onChange={(e) => setMandatoryCategory(e.target.value)}
+                         className="w-full text-xs py-2.5 px-3 rounded-xl border border-slate-800 bg-slate-950 font-bold outline-none text-white focus:border-amber-500 transition-all text-right cursor-pointer"
+                       >
+                         <option value="عطور ودخون">عطور ودخون</option>
+                         <option value="غذائية">غذائية</option>
+                         <option value="مشروبات">مشروبات</option>
+                         <option value="أزياء وملبوسات">أزياء وملبوسات</option>
+                         <option value="جماليات وهدايا">جماليات وهدايا</option>
+                         <option value="حلويات وهدايا">حلويات وهدايا</option>
+                         <option value="custom">✍️ تصنيف مخصص...</option>
+                       </select>
+                     </div>
 
-                  <div className="border-t border-slate-800/60 pt-4 flex gap-2 justify-end">
-                    <button
-                      onClick={executeAIAnalysis}
-                      className="py-2.5 px-8 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-extrabold text-xs rounded-xl flex items-center gap-2 cursor-pointer shadow-lg animate-pulse"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-black" />
-                      <span>بدء ميكانيكية وتعبئة الحقول ➔</span>
-                    </button>
-                  </div>
-                </div>
+                     {/* 2b. Custom Category Input (Shows only if "custom" is selected) */}
+                     {mandatoryCategory === "custom" && (
+                       <div className="space-y-1.5 animate-fade-in">
+                         <label className="block text-[10px] text-amber-500 font-black">✍️ اكتب اسم التصنيف المخصص:</label>
+                         <input 
+                           type="text"
+                           placeholder="مثال: تحف واكسسوارات منزلية"
+                           value={customCategory}
+                           onChange={(e) => setCustomCategory(e.target.value)}
+                           className="w-full text-xs py-2 px-3 rounded-xl border border-amber-500/40 bg-slate-950 text-white outline-none focus:border-amber-500 text-right"
+                         />
+                       </div>
+                     )}
+                     
+                     {/* Guidance warning */}
+                     <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-900 text-[10px] text-gray-500 leading-relaxed font-sans mt-2">
+                       📌 <span className="text-amber-500 font-bold">تنويه إداري:</span> نظراً لمتطلبات التسجيل الوطني، يرجى استكمال الاسم والتصنيف ورفع صورة فوتوغرافية واضحة للمنتج لتجنب رفض الفاتورة أو الصنف سحابياً.
+                     </div>
+                   </div>
+
+                   <div className="border-t border-slate-800/60 pt-4 flex gap-2 justify-end">
+                     <button
+                       onClick={executeAIAnalysis}
+                       className="py-3 px-8 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-extrabold text-xs rounded-xl flex items-center gap-2 cursor-pointer shadow-lg animate-pulse border-none transition-all duration-200 hover:scale-[1.02] active:scale-95"
+                     >
+                       <Sparkles className="w-4 h-4 text-black" />
+                       <span>بدء ميكانيكية وتعبئة الحقول ➔</span>
+                     </button>
+                   </div>
+                 </div>
 
               </div>
             </div>
@@ -2300,91 +2358,28 @@ export default function AIProductBuilder({
                   )}
 
                   {activeTab === "competitors" && (
-                    <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/30 space-y-4 text-right font-sans">
-                      <div className="flex justify-between items-center border-b border-slate-800 pb-2.5">
-                        <div>
-                          <h4 className="text-xs font-black text-amber-500">🎯 روابط وأسعار المنافسين المرتبطين بهذا المنتج:</h4>
-                          <p className="text-[10px] text-gray-400 mt-0.5">مقارنة الأسعار الفورية، فروقات الهوامش، وحالة توفر السلعة بصفحات المنافسين</p>
-                        </div>
+                    <div className="p-8 rounded-2xl border border-slate-800 bg-slate-900/30 text-center space-y-4 max-w-lg mx-auto my-6 font-sans text-right" dir="rtl">
+                      <div className="w-14 h-14 bg-amber-500/10 border border-[#D4AF37]/30 rounded-full flex items-center justify-center mx-auto text-[#D4AF37] animate-pulse">
+                        <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
                       </div>
-
-                      <div className="space-y-3">
-                        {(() => {
-                          const linkedComps = loadedComps;
-
-                          if (linkedComps.length === 0) {
-                            return (
-                              <div className="py-12 text-center text-xs text-gray-500 border border-dashed border-slate-800 rounded-xl leading-relaxed">
-                                <span className="text-2xl block mb-2">🎯</span>
-                                لا يوجد منافسون مرتبطون بهذا المنتج حالياً.
-                                <br />
-                                <span className="text-[10px] text-gray-500 block mt-1">
-                                  اربط المنافسين بهذا المنتج من واجهة "مراقبة المنافسين" بالربط الذكي أو أضف رابط المنافس المباشر لتسجيله.
-                                </span>
-                              </div>
-                            );
+                      <h4 className="text-sm font-black text-white">منظومة رصد المنافسين المستقلة 📡</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed font-bold">
+                        رصد الأسعار مقارنةً بالمنتج متوفر حياً حركياً في تبويب مراقبة ومقارنة المنافسين بالمنصة.
+                      </p>
+                      <button 
+                        onClick={() => {
+                          window.dispatchEvent(new CustomEvent("sahm_navigate_command_center", { detail: { subTab: "competitors" } }));
+                          if (triggerNotification) {
+                            triggerNotification("جاري انتقالك لتبويب رصد المنافسين داخلياً 🧠", "success");
                           }
-
-                          return linkedComps.map((comp: any) => {
-                            const ourPrice = parseFloat(prices.price) || 0;
-                            const compPrice = parseFloat(comp.currentPrice || comp.current_price) || 0;
-                            const priceDiff = ourPrice - compPrice;
-                            const isWeAreDearer = priceDiff > 0;
-                            const isWeAreCheaper = priceDiff < 0;
-
-                            return (
-                              <div 
-                                key={comp.id || comp.competitor_product_id}
-                                className="p-3.5 rounded-xl border border-slate-850 bg-slate-950/40 text-right space-y-3.5"
-                              >
-                                <div className="flex justify-between items-start pb-2 border-b border-slate-900/60">
-                                  <div>
-                                    <h5 className="text-[11px] font-black text-white leading-normal">{comp.competitor_product_name || comp.product_name || comp.customProductName || "دهن عود منافس"}</h5>
-                                    <span className="text-[8.5px] text-gray-500 font-mono block mt-0.5">
-                                      المتجر: <b className="text-[#D4AF37]">{comp.competitor_name || comp.competitorName}</b> • آخر رصد: {comp.lastUpdated || comp.last_checked_at || "الآن حياً"}
-                                    </span>
-                                  </div>
-                                  <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
-                                    comp.availability === 'متوفر' ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-                                  }`}>
-                                    {comp.availability === 'متوفر' ? "✅ متوفر لديه" : "🚫 نفذت الكمية"}
-                                  </span>
-                                </div>
-
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-right">
-                                  <div className="p-2 rounded bg-black/40 border border-slate-900">
-                                    <span className="block text-[8px] text-gray-500 font-bold mb-0.5">سعرك الحالي</span>
-                                    <span className="text-[10px] font-black text-indigo-400 font-mono block">{ourPrice} ر.س</span>
-                                  </div>
-                                  <div className="p-2 rounded bg-black/40 border border-slate-900">
-                                    <span className="block text-[8px] text-gray-500 font-bold mb-0.5">سعر المنافس</span>
-                                    <span className="text-[10px] font-black text-amber-500 font-mono block">{compPrice} ر.س</span>
-                                  </div>
-                                  <div className="p-2 rounded bg-black/40 border border-[#D4AF37]/10">
-                                    <span className="block text-[8px] text-gray-500 font-bold mb-0.5">فرق السعر الفعلي</span>
-                                    <span className={`text-[10px] font-black font-mono block ${priceDiff === 0 ? "text-gray-400" : isWeAreDearer ? "text-rose-400" : "text-emerald-400"}`}>
-                                      {priceDiff === 0 ? "متطابق" : priceDiff > 0 ? `أنت أغلى (+${priceDiff} ر.س)` : `أنت أرخص (${priceDiff} ر.س)`}
-                                    </span>
-                                  </div>
-                                  <div className="p-2 rounded bg-black/40 border border-slate-900">
-                                    <span className="block text-[8px] text-gray-500 font-bold mb-0.5">الحالة الرصدية</span>
-                                    <span className="text-[10px] font-bold text-gray-300 block">{comp.monitoring_status || (comp.status === 'price_dropped' ? "انخفاض سعر 📉" : comp.status === 'price_raised' ? "ارتفاع سعر 📈" : "مستقرة ومطابقة")}</span>
-                                  </div>
-                                </div>
-
-                                <div className="bg-indigo-950/15 p-2.5 rounded-lg border border-indigo-950/20 text-[10px] text-gray-300 leading-relaxed">
-                                  <span className="font-extrabold text-indigo-400 block mb-1">🤖 توصية الذكاء الاصطناعي للمواءمة (Sahm Brain Recommendation):</span>
-                                  {
-                                    comp.initialComparison ? comp.initialComparison :
-                                    isWeAreDearer ? `سعر المنافس أقل بـ ${priceDiff} ر.س. نوصي بتفعيل كوبون خصم جزئي بنسبة ٥٪ مخصص للعملاء المحالين من الواتساب للحفاظ على هامش ربحك العالي البالغ ${prices.price && prices.cost ? Math.round(((parseFloat(prices.price) - parseFloat(prices.cost)) / parseFloat(prices.price)) * 100) : 0}% دون تعديل معلن بالكتالوج.` :
-                                    `أنت تتفوق ترويجياً بسعر مميز أقل بـ ${Math.abs(priceDiff)} ر.س من المنافس. يمكنك تكثيف الحملات الموجهة لتوسيع حصتك السوقية وحرق مخزونك الراكد.`
-                                  }
-                                </div>
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
+                        }}
+                        className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-black rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 mx-auto"
+                      >
+                        <span>قارن هذا المنتج بالمنافسين ⚖️</span>
+                      </button>
                     </div>
                   )}
 

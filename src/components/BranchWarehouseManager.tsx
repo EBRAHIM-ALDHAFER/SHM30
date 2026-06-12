@@ -3,11 +3,21 @@ import { Product, Invoice, ThemeColors, User, Branch, Warehouse, StockTransfer, 
 import { 
   Building2, Warehouse as WarehouseIcon, ArrowLeftRight, ShieldCheck, 
   MapPin, Users, TrendingUp, AlertTriangle, Cpu, Plus, Edit3, Trash2, 
-  ToggleLeft, Check, RefreshCw, BarChart3, Info, Eye, ClipboardList, Copy
+  ToggleLeft, Check, RefreshCw, BarChart3, Info, Eye, ClipboardList, Copy, Cloud
 } from "lucide-react";
 import { exportToExcel, exportToPDF } from "../utils/exportUtils";
 import ImageUploader from "./ImageUploader";
 import NationalAddressForm from "./NationalAddressForm";
+import { SubscriptionGuard } from "../core/database/subscriptionGuard";
+import { SahmDatabaseService } from "../core/database/dbService";
+const getDriveAccessToken = (): string | null => null;
+const googleDriveService = {
+  uploadFile: async (options: any): Promise<any> => {
+    throw new Error("Google Drive is disabled in this environment.");
+  }
+};
+import { warehouseService } from "../core/database/warehouseService";
+import { CustomIconRenderer } from "../lib/customIcons";
 
 interface BranchWarehouseManagerProps {
   products: Product[];
@@ -21,7 +31,7 @@ interface BranchWarehouseManagerProps {
 // Initial default branches
 const DEFAULT_BRANCHES: Branch[] = [
   {
-    id: "br_riyadh_main",
+    id: "branch_riyadh_main",
     name: "فرع الرياض الرئيسي",
     city: "الرياض",
     address: "طريق الملك فهد، حي المروج",
@@ -85,7 +95,7 @@ const DEFAULT_BRANCHES: Branch[] = [
 // Initial default warehouses
 const DEFAULT_WAREHOUSES: Warehouse[] = [
   {
-    id: "wh_central_riyadh",
+    id: "warehouse_1",
     name: "مستودع سهم المركزي - الرياض",
     type: "main",
     location: "صناعية السلي الجديدة، الرياض",
@@ -134,7 +144,7 @@ const DEFAULT_TRANSFERS: StockTransfer[] = [
     id: "tr_001",
     transferNo: "STK-TRN-9844",
     fromType: "warehouse",
-    fromId: "wh_central_riyadh",
+    fromId: "warehouse_1",
     fromName: "مستودع سهم المركزي - الرياض",
     toType: "warehouse",
     toId: "wh_jeddah_sub",
@@ -155,7 +165,7 @@ const DEFAULT_TRANSFERS: StockTransfer[] = [
     id: "tr_002",
     transferNo: "STK-TRN-5541",
     fromType: "warehouse",
-    fromId: "wh_central_riyadh",
+    fromId: "warehouse_1",
     fromName: "مستودع سهم المركزي - الرياض",
     toType: "warehouse",
     toId: "wh_dammam_sub",
@@ -236,42 +246,56 @@ export default function BranchWarehouseManager({
   const [managerTab, setManagerTab] = useState<"map" | "dashboard" | "branches" | "warehouses" | "transfers" | "permissions" | "ai">("map");
 
   // Dynamic stores
+  const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
+
   const [branches, setBranches] = useState<Branch[]>(() => {
+    if (isSupabase) return DEFAULT_BRANCHES;
     const saved = localStorage.getItem("sahm_web_branches");
     return saved ? JSON.parse(saved) : DEFAULT_BRANCHES;
   });
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>(() => {
+    if (isSupabase) return DEFAULT_WAREHOUSES;
     const saved = localStorage.getItem("sahm_web_warehouses");
     return saved ? JSON.parse(saved) : DEFAULT_WAREHOUSES;
   });
 
   const [transfers, setTransfers] = useState<StockTransfer[]>(() => {
+    if (isSupabase) return DEFAULT_TRANSFERS;
     const saved = localStorage.getItem("sahm_web_transfers");
     return saved ? JSON.parse(saved) : DEFAULT_TRANSFERS;
   });
 
   const [permissions, setPermissions] = useState<RolePermission[]>(() => {
+    if (isSupabase) return DEFAULT_PERMISSIONS;
     const saved = localStorage.getItem("sahm_web_role_permissions");
     return saved ? JSON.parse(saved) : DEFAULT_PERMISSIONS;
   });
 
   // Persist states helper
   useEffect(() => {
-    localStorage.setItem("sahm_web_branches", JSON.stringify(branches));
-  }, [branches]);
+    if (!isSupabase) {
+      localStorage.setItem("sahm_web_branches", JSON.stringify(branches));
+    }
+  }, [branches, isSupabase]);
 
   useEffect(() => {
-    localStorage.setItem("sahm_web_warehouses", JSON.stringify(warehouses));
-  }, [warehouses]);
+    if (!isSupabase) {
+      localStorage.setItem("sahm_web_warehouses", JSON.stringify(warehouses));
+    }
+  }, [warehouses, isSupabase]);
 
   useEffect(() => {
-    localStorage.setItem("sahm_web_transfers", JSON.stringify(transfers));
-  }, [transfers]);
+    if (!isSupabase) {
+      localStorage.setItem("sahm_web_transfers", JSON.stringify(transfers));
+    }
+  }, [transfers, isSupabase]);
 
   useEffect(() => {
-    localStorage.setItem("sahm_web_role_permissions", JSON.stringify(permissions));
-  }, [permissions]);
+    if (!isSupabase) {
+      localStorage.setItem("sahm_web_role_permissions", JSON.stringify(permissions));
+    }
+  }, [permissions, isSupabase]);
 
   // States for Modals/Creators
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
@@ -310,21 +334,27 @@ export default function BranchWarehouseManager({
   const [trnNotes, setTrnNotes] = useState("");
 
   // Map state interactive helper
-  const [selectedMapNode, setSelectedMapNode] = useState<string | null>("br_riyadh_main");
+  const [selectedMapNode, setSelectedMapNode] = useState<string | null>("branch_riyadh_main");
 
   // Active selected warehouse and custom tools
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>("wh_central_riyadh");
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>("warehouse_1");
   const [whProductFilter, setWhProductFilter] = useState<"all" | "low" | "out" | "available" | "active">("all");
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
   // Dynamic Branch Workspace state additions
-  const [selectedBranchId, setSelectedBranchId] = useState<string>("br_riyadh_main");
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("branch_riyadh_main");
   const [branchProductFilter, setBranchProductFilter] = useState<"all" | "low" | "top" | "slow" | "out">("all");
   const [branchStocks, setBranchStocks] = useState<{[branchId: string]: {[productId: string]: number}}>(() => {
+    if (isSupabase) return {
+      "branch_riyadh_main": { "1": 120, "2": 45, "3": 0, "4": 65 },
+      "br_jeddah_int": { "1": 35, "2": 110, "3": 12 },
+      "br_dammam": { "1": 0, "2": 6 },
+      "br_makkah": { "1": 180, "2": 200, "3": 55 }
+    };
     const saved = localStorage.getItem("sahm_web_branch_stocks");
-    if (saved) return JSON.parse(saved);
+    if (saved && !isSupabase) return JSON.parse(saved);
     return {
-      "br_riyadh_main": {
+      "branch_riyadh_main": {
         "1": 120, // Cafe
         "2": 45,  // Dates
         "3": 0,   // Accessories
@@ -348,8 +378,10 @@ export default function BranchWarehouseManager({
   });
 
   useEffect(() => {
-    localStorage.setItem("sahm_web_branch_stocks", JSON.stringify(branchStocks));
-  }, [branchStocks]);
+    if (!isSupabase) {
+      localStorage.setItem("sahm_web_branch_stocks", JSON.stringify(branchStocks));
+    }
+  }, [branchStocks, isSupabase]);
 
   const [showAddProductToBranchModal, setShowAddProductToBranchModal] = useState(false);
   const [newBranchProductId, setNewBranchProductId] = useState("");
@@ -382,6 +414,31 @@ export default function BranchWarehouseManager({
   const [aiReportType, setAiReportType] = useState<"branch" | "warehouse">("branch");
   const [aiReportOutput, setAiReportOutput] = useState<string>("");
   const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // States for Smart Inventory schedule & Automatic Discrepancy report
+  const [showSmartInventoryModal, setShowSmartInventoryModal] = useState(false);
+  const [smartSchedules, setSmartSchedules] = useState<any[]>(() => {
+    if (isSupabase) return [];
+    try {
+      const saved = localStorage.getItem("sahm_smart_inventories");
+      return saved && !isSupabase ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [scheduleName, setScheduleName] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleInterval, setScheduleInterval] = useState("أسبوعي");
+  const [scheduleMargin, setScheduleMargin] = useState<number>(5);
+  const [scheduleAdapter, setScheduleAdapter] = useState("gdrive");
+  const [generatedReport, setGeneratedReport] = useState<any | null>(null);
+  const [isExportingReport, setIsExportingReport] = useState(false);
+
+  useEffect(() => {
+    if (!isSupabase) {
+      localStorage.setItem("sahm_smart_inventories", JSON.stringify(smartSchedules));
+    }
+  }, [smartSchedules, isSupabase]);
 
   const addToast = (text: string, type: "success" | "error" | "info" = "success") => {
     setToast({ text, type });
@@ -465,9 +522,21 @@ export default function BranchWarehouseManager({
   const totals = calculateLiveTotals();
 
   // Create branch
-  const handleAddNewBranch = (e: React.FormEvent) => {
+  const handleAddNewBranch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!branchName.trim()) return;
+
+    const tenantId = user?.tenant_id || localStorage.getItem("sahm_impersonate_tenant_id") || "tenant-default";
+    const isPlatform = ["platform_owner", "system_owner", "system_admin"].includes(String(user?.role || "").trim());
+
+    if (!isPlatform && tenantId !== "tenant-local") {
+      const guard = SubscriptionGuard.getInstance();
+      const check = await guard.checkLimit(tenantId, "branches", branches.length);
+      if (!check.allowed) {
+        alert(`وصلت إلى الحد الأقصى للفروع في باقتك الحالية (الحد: ${check.limit}). تواصل مع إدارة منصة سهم للترقية.`);
+        return;
+      }
+    }
 
     const newBr: Branch = {
       id: "br_" + Date.now().toString() + "_" + Math.floor(Math.random() * 100),
@@ -496,6 +565,16 @@ export default function BranchWarehouseManager({
     setBranchImageUrl(undefined);
     setBranchAddressProfile(undefined);
     addToast(`🏢 تم إنشاء فرع جديد بنجاح: "${newBr.name}"`, "success");
+
+    // Increment usage
+    if (!isPlatform && tenantId !== "tenant-local") {
+      try {
+        const db = SahmDatabaseService.getInstance();
+        await db.incrementSubscriptionUsage(tenantId, user?.company_id || user?.organization_id || "comp-default", "branches_count", 1);
+      } catch (uErr) {
+        console.warn("[BranchWarehouseManager] Failed to increment branches count in usage:", uErr);
+      }
+    }
   };
 
   // Suspend or Toggle Branch Status
@@ -556,9 +635,21 @@ export default function BranchWarehouseManager({
   };
 
   // Add Warehouse
-  const handleAddNewWarehouse = (e: React.FormEvent) => {
+  const handleAddNewWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!whName.trim()) return;
+
+    const tenantId = user?.tenant_id || localStorage.getItem("sahm_impersonate_tenant_id") || "tenant-default";
+    const isPlatform = ["platform_owner", "system_owner", "system_admin"].includes(String(user?.role || "").trim());
+
+    if (!isPlatform && tenantId !== "tenant-local") {
+      const guard = SubscriptionGuard.getInstance();
+      const check = await guard.checkLimit(tenantId, "warehouses", warehouses.length);
+      if (!check.allowed) {
+        alert(`وصلت إلى الحد الأقصى للمستودعات في باقتك الحالية (الحد: ${check.limit}). تواصل مع إدارة منصة سهم للترقية.`);
+        return;
+      }
+    }
 
     const newWh: Warehouse = {
       id: "wh_" + Date.now().toString() + "_" + Math.floor(Math.random() * 100),
@@ -1016,6 +1107,82 @@ export default function BranchWarehouseManager({
         </div>
       )}
 
+      {/* 🚀 Main Premium Header for Branches & Logistics Hub */}
+      <div className="p-5 rounded-2xl border text-right space-y-4 shadow-md relative overflow-hidden transition-all duration-300 hover:shadow-[0_0_25px_rgba(212,175,55,0.08)]" 
+        style={{
+          background: `radial-gradient(circle at top right, rgba(212, 175, 55, 0.08) 0%, rgba(13, 21, 39, 0.95) 100%)`,
+          borderColor: theme.border
+        }}>
+        <div className="absolute left-0 top-0 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 relative z-10">
+          <div className="flex items-center gap-4">
+            {/* Double-ring logistics efficiency gauge */}
+            <div className="relative w-16 h-16 flex items-center justify-center shrink-0 bg-black/45 rounded-2xl border border-zinc-800/60 p-2 shadow-inner">
+              <div className="absolute inset-0">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="2.5" />
+                  <circle 
+                    cx="18" 
+                    cy="18" 
+                    r="16" 
+                    fill="none" 
+                    stroke="#D4AF37" 
+                    strokeWidth="2.5" 
+                    strokeDasharray="100" 
+                    strokeDashoffset="2.2" 
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-out"
+                  />
+                </svg>
+              </div>
+              <div className="absolute inset-1.5">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="2" />
+                  <circle 
+                    cx="18" 
+                    cy="18" 
+                    r="16" 
+                    fill="none" 
+                    stroke="#10B981" 
+                    strokeWidth="2" 
+                    strokeDasharray="100" 
+                    strokeDashoffset="0" 
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-out"
+                  />
+                </svg>
+              </div>
+              <div className="text-center z-10">
+                <span className="block text-[10px] font-black text-white font-mono leading-none">97.8%</span>
+                <span className="block text-[6px] text-amber-400 mt-0.5 leading-none">كفاءة النقل</span>
+              </div>
+            </div>
+
+            <div className="space-y-1 text-right">
+              <h2 className="text-base font-black text-white flex items-center gap-2 animate-fade-in">
+                <span>إدارة الفروع والمستودعات والخدمات اللوجستية 🏢📦</span>
+                <span className="font-extrabold text-[8px] bg-amber-500 text-black px-1.5 py-0.5 rounded font-mono tracking-wider">LOGISTICS OPERATIONS</span>
+              </h2>
+              <p className="text-[10px] text-gray-400">
+                لوحة تحكم توزيع المخزون المركزي والمناقلات السحابية ومراقبة الفروع الإقليمية وجداول الجرد الفوري
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] bg-slate-900 border border-slate-800 text-emerald-400 px-2.5 py-1.5 rounded-lg font-black flex items-center gap-1.5 shadow-sm animate-pulse">
+              <span>نشط اللوجستك ✓</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Gold gradient divider */}
+      <div className="relative h-[1px] w-full">
+        <div className="absolute inset-x-0 h-full bg-gradient-to-r from-transparent via-amber-500/20 to-transparent" />
+      </div>
+
       {/* Header controls layout toggles */}
       <div className="flex flex-wrap gap-2 pb-2 border-b" style={{ borderColor: theme.border }}>
         {[
@@ -1091,7 +1258,7 @@ export default function BranchWarehouseManager({
 
                 {/* NODE 1: Riyadh Main (Central Node) */}
                 <button 
-                  onClick={() => setSelectedMapNode("br_riyadh_main")}
+                  onClick={() => setSelectedMapNode("branch_riyadh_main")}
                   className={`absolute top-[40%] left-[55%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 cursor-pointer group z-10`}
                 >
                   <span className="absolute -inset-2 bg-emerald-500/30 rounded-full animate-ping"></span>
@@ -1147,7 +1314,7 @@ export default function BranchWarehouseManager({
 
                 {/* WAREHOUSE NODE Central Riyadh */}
                 <button 
-                  onClick={() => setSelectedMapNode("wh_central_riyadh")}
+                  onClick={() => setSelectedMapNode("warehouse_1")}
                   className="absolute top-[28%] left-[45%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 cursor-pointer group z-10"
                 >
                   <div className="w-5.5 h-5.5 rounded-lg bg-teal-500 border-2 border-zinc-900 flex items-center justify-center shadow-lg">
@@ -1772,7 +1939,7 @@ export default function BranchWarehouseManager({
             if (!activeBranch) return null;
 
             // Compute dynamic invoices count and total sales/profits
-            const activeBranchInvoices = invoices.filter(inv => inv.branch_id === activeBranch.id || (activeBranch.id === "br_riyadh_main" && !inv.branch_id));
+            const activeBranchInvoices = invoices.filter(inv => inv.branch_id === activeBranch.id || (activeBranch.id === "branch_riyadh_main" && !inv.branch_id));
             const distinctProductsCount = Object.keys(branchStocks[activeBranch.id] || {}).length;
             const totalStockSum = (Object.values(branchStocks[activeBranch.id] || {}) as number[]).reduce((sum: number, qty: number) => sum + qty, 0);
             
@@ -2289,22 +2456,93 @@ export default function BranchWarehouseManager({
                     <h4 className="text-xs font-black text-white">{w.name}</h4>
                   </div>
 
-                  <div className="space-y-2 text-xs">
+                  <div className="space-y-3.5 text-xs">
                     
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px] text-gray-400 font-bold">
-                        <span>نسبة الإشغال الاستيعابية:</span>
-                        <span>{occupationRate}% ({currentLoad} / {w.capacity} قطعة)</span>
+                    {/* Radial gauge mini-chart for capacity utilization */}
+                    <div className="grid grid-cols-5 gap-3 items-center bg-black/40 p-3 rounded-2xl border border-zinc-800/50">
+                      {/* Left: Text & Stats */}
+                      <div className="col-span-3 space-y-1">
+                        <span className="text-[9px] text-gray-400 font-black block leading-none">مؤشر الاستيعاب</span>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-sm font-black font-mono text-white">{occupationRate}%</span>
+                          <span className="text-[9px] text-gray-400 font-bold leading-none">مستغل</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 font-mono flex flex-wrap gap-x-1 gap-y-0.5 leading-none">
+                          <span className="text-gray-300 font-bold">{currentLoad}</span>
+                          <span>/</span>
+                          <span>{w.capacity} قطعة</span>
+                        </div>
                       </div>
-                      <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full ${isSelected ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                          style={{ width: `${occupationRate}%` }}
-                        ></div>
+
+                      {/* Right: Modern SVG Radial Gauge Chart */}
+                      <div className="col-span-2 flex justify-center">
+                        <div className="relative w-12 h-12 flex items-center justify-center">
+                          {/* Background Circle */}
+                          <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                            <path
+                              className="text-zinc-800"
+                              strokeWidth="3.5"
+                              stroke="currentColor"
+                              fill="none"
+                              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                            />
+                            {/* Active portion */}
+                            <path
+                              className={`transition-all duration-500 ease-out ${
+                                occupationRate > 90
+                                  ? "text-red-500"
+                                  : occupationRate > 75
+                                  ? "text-amber-500"
+                                  : occupationRate < 15
+                                  ? "text-blue-400"
+                                  : "text-emerald-400"
+                              }`}
+                              strokeWidth="3.5"
+                              strokeDasharray={`${occupationRate}, 100`}
+                              strokeLinecap="round"
+                              stroke="currentColor"
+                              fill="none"
+                              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                            />
+                          </svg>
+                          <div className="absolute text-[8px] font-black font-mono text-gray-300">
+                            {occupationRate < 15 ? "خفيف" : occupationRate > 90 ? "حرج" : occupationRate > 75 ? "مكتظ" : "مثالي"}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="pt-2 text-[11px] text-gray-400 space-y-1 bg-zinc-900/40 p-2.5 rounded-xl">
+                    {/* Progress tracking bar */}
+                    <div className="space-y-1">
+                      <div className="w-full h-2 rounded-full bg-zinc-800/80 overflow-hidden relative">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            occupationRate > 90
+                              ? 'bg-gradient-to-r from-red-600 to-red-400'
+                              : occupationRate > 75
+                              ? 'bg-gradient-to-r from-amber-600 to-amber-400'
+                              : 'bg-gradient-to-r from-emerald-600 to-emerald-400'
+                          }`}
+                          style={{ width: `${occupationRate}%` }}
+                        ></div>
+                      </div>
+                      
+                      {/* State health indicators */}
+                      <div className="flex justify-between items-center text-[9px] font-bold">
+                        {occupationRate > 90 ? (
+                          <span className="text-red-400 flex items-center gap-1">⚠️ عتبة حرجة: يرجى تنزيل المخزون</span>
+                        ) : occupationRate > 75 ? (
+                          <span className="text-amber-400 flex items-center gap-1">⚡ تحميل مرتفع: تجنب الشحن المكثف</span>
+                        ) : occupationRate < 15 ? (
+                          <span className="text-blue-400 flex items-center gap-1">ℹ️ سعة متوفرة لشحن الأغذية</span>
+                        ) : (
+                          <span className="text-emerald-400 flex items-center gap-1">✓ مستوى تشغيلي آمن وممتاز</span>
+                        )}
+                        <span className="text-zinc-550">المتاح: {Math.max(0, w.capacity - currentLoad)}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 text-[11px] text-gray-400 space-y-1 bg-zinc-900/40 p-2.5 rounded-xl border border-zinc-850/40">
                       <div className="flex justify-between">
                         <span>أمين المستودع:</span>
                         <strong className="text-white">{w.manager}</strong>
@@ -2404,6 +2642,19 @@ export default function BranchWarehouseManager({
                     >
                       <ClipboardList className="w-3.5 h-3.5" />
                       <span>بدء جرد مادي فوري</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setGeneratedReport(null);
+                        setScheduleName(`جرد مجدول - ${currentWh.name}`);
+                        setScheduleTime(new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 16));
+                        setShowSmartInventoryModal(true);
+                      }}
+                      className="py-1.5 px-3.5 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-black rounded-lg text-[11px] font-black cursor-pointer transition-all flex items-center gap-1 font-sans border-none"
+                    >
+                      <Cpu className="w-3.5 h-3.5 animate-pulse" />
+                      <span>جدولة الجرد الذكي 🤖</span>
                     </button>
                   </div>
                 </div>
@@ -2895,6 +3146,476 @@ export default function BranchWarehouseManager({
               </form>
             </div>
           )}
+
+          {/* @ts-ignore */}
+          {/* C. Direct Adjust Modal for Inventory Adjustments (جرد مادي) */}
+          {showDirectAdjustModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md text-right">
+              <form 
+                onSubmit={handleInventoryAdjustmentSubmit}
+                className="w-full max-w-sm rounded-3xl border border-slate-800 bg-slate-950 p-6 space-y-4 text-right"
+              >
+                <div className="space-y-1">
+                  <div className="p-2 bg-purple-500/10 text-purple-400 rounded-xl w-fit">
+                    <ClipboardList className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-xs font-black text-white font-sans">تسجيل مطابقة الجرد المادي الفوري 📊</h3>
+                  <p className="text-[9.5px] text-gray-500">
+                    جرد سريع للكميات الفعلية المتواجدة على الرفوف بداخل المستودع المختار لمطابقة النظام
+                  </p>
+                </div>
+
+                <div className="space-y-3 text-xs font-sans">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-gray-400 font-bold block">قم باختيار صنف المنتج للمطابقة</label>
+                    <select
+                      className="w-full p-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-white outline-none"
+                      value={adjustProductId}
+                      onChange={(e) => {
+                        const pid = e.target.value;
+                        setAdjustProductId(pid);
+                        // Pre-fill current stock
+                        const currentWhObj = warehouses.find(w => w.id === selectedWarehouseId);
+                        const match = currentWhObj?.items.find(i => i.productId === pid);
+                        setAdjustQtyRaw(match ? match.stock : 0);
+                      }}
+                    >
+                      <option value="">-- اختر منتج لمجاراته --</option>
+                      {(() => {
+                        const activeWh = warehouses.find(w => w.id === selectedWarehouseId) || warehouses[0];
+                        const activeItemsWh = activeWh ? activeWh.items : [];
+                        return activeItemsWh.map(item => {
+                          const p = products.find(prod => prod.id === item.productId);
+                          return (
+                            <option key={item.productId} value={item.productId}>
+                              {p?.name || "منتج غير معروف"} ({p?.sku || "SKU"})
+                            </option>
+                          );
+                        });
+                      })()}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-gray-400 font-bold block">الكميات المادية الفعلية المرصودة بالرفوف</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="10000"
+                      className="w-full p-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-white outline-none font-mono font-bold text-left"
+                      value={adjustQtyRaw}
+                      onChange={(e) => setAdjustQtyRaw(parseInt(e.target.value) || 0)}
+                    />
+                    <span className="text-[9px] text-gray-500 block">تعديل هذه القيمة سيغير تلقائياً أرصدة نظام المستودع المعزول.</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5 pt-3 border-t border-zinc-850 flex-row-reverse" style={{ borderColor: theme.border }}>
+                  <button
+                    type="submit"
+                    disabled={!adjustProductId}
+                    className="flex-1 py-2 rounded-xl text-xs font-black bg-purple-600 text-white hover:bg-purple-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    حفظ ومزامنة ورقة الجرد 💾
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDirectAdjustModal(false)}
+                    className="py-2 px-4 rounded-xl text-xs font-bold bg-zinc-900 border border-zinc-800 text-gray-300"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* 📅 C.2: Smart Warehouse Inventory Schedule & Automated Discrepancy Reporting Modal */}
+          {showSmartInventoryModal && (() => {
+            const currentWh = warehouses.find(w => w.id === selectedWarehouseId) || warehouses[0];
+            const whSchedules = smartSchedules.filter(s => s.warehouseId === currentWh?.id);
+            const isGDriveActiveOnSystem = localStorage.getItem("sahm_gdrive_connected") === "true" && getDriveAccessToken() !== null;
+
+            return (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md text-right">
+                <div 
+                  className="w-full max-w-2xl rounded-3xl border border-amber-500/30 bg-slate-950 p-6 space-y-5 text-right max-h-[92vh] overflow-y-auto scrollbar-thin"
+                >
+                  {/* Title */}
+                  <div className="flex items-center justify-between border-b border-zinc-800 pb-3 flex-row-reverse">
+                    <button
+                      onClick={() => {
+                        setShowSmartInventoryModal(false);
+                        setGeneratedReport(null);
+                      }}
+                      className="py-1 px-3 bg-zinc-900 hover:bg-zinc-800 text-gray-400 hover:text-white rounded-lg text-xs font-black border-none cursor-pointer"
+                    >
+                      ✕ إغلاق النافذة
+                    </button>
+                    <div className="flex items-center gap-2 flex-row-reverse text-right">
+                      <Cpu className="w-5 h-5 text-amber-500" />
+                      <div>
+                        <h3 className="text-xs font-black text-white font-sans">جدولة وإدارة الجرد الذكي لقنوات التوزيع 🤖📅</h3>
+                        <span className="text-[10px] text-gray-400 block font-sans">المستودع المستهدف: {currentWh?.name || "الرياض المركزي"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Form & Info Section */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    {/* Setup schedule form */}
+                    <div className="bg-zinc-900/40 p-4 rounded-2xl border border-zinc-800 space-y-3">
+                      <h4 className="text-[11px] font-black text-amber-400">📅 ضبط المزامنة وجدولة الجرد</h4>
+                      
+                      <div className="space-y-1">
+                        <label className="text-[9.5px] text-gray-400 font-bold block">عنوان أو مسمى دورة الجرد *</label>
+                        <input
+                          type="text"
+                          value={scheduleName}
+                          onChange={(e) => setScheduleName(e.target.value)}
+                          className="w-full text-xs p-2 rounded-lg border border-zinc-800 bg-slate-950 text-white outline-none"
+                          placeholder="مثال: الجرد التجاري لعهد الصيف"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[9.5px] text-gray-400 font-bold block">دورية التكرار</label>
+                          <select
+                            value={scheduleInterval}
+                            onChange={(e) => setScheduleInterval(e.target.value)}
+                            className="w-full text-xs p-2 rounded-lg border border-zinc-800 bg-slate-950 text-white outline-none"
+                          >
+                            <option value="أسبوعي">أسبوعي 📅</option>
+                            <option value="شهري">شهري 🗓️</option>
+                            <option value="يومي">يومي 🔆</option>
+                            <option value="مرة واحدة">مرة واحدة ⚡</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9.5px] text-gray-400 font-bold block">هامش الفروقات المسموح</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="50"
+                            value={scheduleMargin}
+                            onChange={(e) => setScheduleMargin(parseInt(e.target.value) || 0)}
+                            className="w-full text-xs p-2 rounded-lg border border-zinc-800 bg-slate-950 text-white font-mono outline-none text-center"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9.5px] text-gray-400 font-bold block">موعد الجرد المجدول التلقائي</label>
+                        <input
+                          type="datetime-local"
+                          value={scheduleTime}
+                          onChange={(e) => setScheduleTime(e.target.value)}
+                          className="w-full text-xs p-2 rounded-lg border border-zinc-800 bg-slate-950 text-white font-mono outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9.5px] text-gray-400 font-bold block">الربط والأرشفة السحابية للتقرير</label>
+                        <select
+                          value={scheduleAdapter}
+                          onChange={(e) => setScheduleAdapter(e.target.value)}
+                          className="w-full text-xs p-2 rounded-lg border border-zinc-800 bg-slate-950 text-white outline-none"
+                        >
+                          <option value="gdrive">جوجل درايف السحابي (Google Drive Adapter) 📁</option>
+                          <option value="local">سجل التدقيق الداخلي لسهم (Internal Auditing) ⚓</option>
+                        </select>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!scheduleName || !scheduleTime) {
+                            addToast("❌ يرجى ملء حقول اسم الجرد وموعد التشغيل للمتابعة.", "error");
+                            return;
+                          }
+                          const newSched = {
+                            id: `sched_${Date.now()}`,
+                            warehouseId: currentWh.id,
+                            warehouseName: currentWh.name,
+                            name: scheduleName,
+                            time: scheduleTime,
+                            interval: scheduleInterval,
+                            margin: scheduleMargin,
+                            adapter: scheduleAdapter,
+                            createdAt: new Date().toISOString()
+                          };
+                          setSmartSchedules(prev => [...prev, newSched]);
+                          setScheduleName("");
+                          addToast("✓ تم جدولة الجرد الذكي للمستودع وإعداد بروتوكول التتبع بنجاح! 📅", "success");
+                        }}
+                        className="w-full py-2 bg-amber-500 hover:bg-amber-605 text-black font-black text-xs rounded-xl transition-all border-none cursor-pointer"
+                      >
+                        حفظ وجدولة دورة الجرد الذكي ✓
+                      </button>
+                    </div>
+
+                    {/* Active schedules for this warehouse list */}
+                    <div className="bg-zinc-900/40 p-4 rounded-2xl border border-zinc-800 flex flex-col justify-between space-y-3">
+                      <div>
+                        <h4 className="text-[11px] font-black text-white border-b border-zinc-800 pb-1.5 mb-2">📋 الجدولة الحركية النشطة ({whSchedules.length})</h4>
+                        {whSchedules.length === 0 ? (
+                          <div className="py-12 text-center text-gray-500 text-[10.5px]">
+                            لا توجد دورات جرد مجدولة لهذا المستودع حتى الآن. استخدم المحرك الجانبي للتنفيذ.
+                          </div>
+                        ) : (
+                          <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                            {whSchedules.map((item: any) => (
+                              <div key={item.id} className="p-2.5 rounded-lg border border-zinc-800 bg-slate-950 flex flex-col gap-1.5 text-right relative">
+                                <button
+                                  onClick={() => {
+                                    setSmartSchedules(prev => prev.filter(s => s.id !== item.id));
+                                    addToast("تم إلغاء وحذف دورة الجرد المجدولة.", "info");
+                                  }}
+                                  className="absolute left-2 top-2 p-1 text-gray-500 hover:text-red-500 transition-all border-none bg-transparent cursor-pointer font-bold"
+                                  title="حذف الجدولة"
+                                >
+                                  ✕
+                                </button>
+                                <strong className="text-white text-[10.5px] block pl-6">{item.name}</strong>
+                                <div className="text-[9.5px] text-gray-400 space-y-0.5">
+                                  <div>الموعد: <span className="font-mono text-amber-500">{new Date(item.time).toLocaleString("ar-SA")}</span></div>
+                                  <div>التكرار: <span className="font-bold text-gray-300">{item.interval}</span></div>
+                                  <div>المخرجات المترابطة: <span className="text-emerald-400 font-bold">{item.adapter === "gdrive" ? "حقيبة Google Drive سريعة" : "أرشفة صامتة"}</span></div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Immediate AI mismatch generation trigger */}
+                      <div className="border-t border-zinc-800/80 pt-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!currentWh.items || currentWh.items.length === 0) {
+                              addToast("⚠️ لا توجد سلع بالمستودع للمطابقة والجرد.", "error");
+                              return;
+                            }
+                            addToast("🔄 جاري رصد البضائع ومطابقة الفروقات تلقائياً باستخدام الذكاء...", "info");
+                            
+                            // Synthesize realistic discrepancy report matching system items
+                            const results = currentWh.items.map((item, idx) => {
+                              const p = products.find(prod => prod.id === item.productId);
+                              const systemStock = item.stock;
+                              
+                              // Introduce deficits or surplus occasionally for demonstration
+                              let countedStock = systemStock;
+                              if (idx % 3 === 0 && systemStock > 10) {
+                                countedStock = Math.max(0, systemStock - 4);
+                              } else if (idx % 4 === 1) {
+                                countedStock = systemStock + 3;
+                              }
+
+                              const diff = countedStock - systemStock;
+                              const status = diff === 0 ? "مطابق" : diff < 0 ? "عجز" : "فائض";
+                              return {
+                                productId: item.productId,
+                                name: p?.name || "صنف مخزن",
+                                sku: p?.sku || "SKU-N/A",
+                                systemStock,
+                                countedStock,
+                                diff,
+                                status
+                              };
+                            });
+
+                            const stats = {
+                              totalItemsCounted: results.length,
+                              matchingItems: results.filter(r => r.diff === 0).length,
+                              deficitCount: results.filter(r => r.diff < 0).length,
+                              deficitSum: Math.abs(results.filter(r => r.diff < 0).reduce((sum, r) => sum + r.diff, 0)),
+                              surplusCount: results.filter(r => r.diff > 0).length,
+                              surplusSum: results.filter(r => r.diff > 0).reduce((sum, r) => sum + r.diff, 0),
+                              reportNo: `SAR-${Math.floor(1000 + Math.random() * 9000)}`,
+                              date: new Date().toLocaleDateString("ar-SA"),
+                              warehouseName: currentWh.name,
+                              warehouseId: currentWh.id
+                            };
+
+                            setGeneratedReport({ results, stats });
+                            addToast("✓ تم إعداد تقرير الفروقات التلقائي بنجاح! 📊🤖", "success");
+                          }}
+                          className="w-full py-2 bg-gradient-to-r from-purple-650 to-indigo-600 font-extrabold text-[11px] hover:brightness-110 text-white rounded-xl active:scale-95 transition-all border-none cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <Cpu className="w-3.5 h-3.5 animate-spin" />
+                          <span>محاكاة تشغيل الجرد وتوليد تقرير الفروقات الآن 🤖✨</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Generated Discrepancy report preview */}
+                  {generatedReport && (
+                    <div className="p-4 rounded-2xl bg-zinc-950 border border-indigo-500/30 text-xs space-y-4 animate-fade-in text-right">
+                      <div className="flex items-center justify-between border-b border-zinc-900 pb-2 flex-row-reverse">
+                        <span className="text-[10px] bg-indigo-500/10 text-indigo-400 py-0.5 px-2.5 rounded-lg font-mono font-black">{generatedReport.stats.reportNo}</span>
+                        <div className="flex items-center gap-1.5 flex-row-reverse leading-none">
+                          <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-ping"></span>
+                          <strong className="text-white text-xs font-sans">تقرير الفروقات الذكي التلقائي (Discrepancy Report) 📊</strong>
+                        </div>
+                      </div>
+
+                      {/* Header analysis cards */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+                        <div className="bg-zinc-900/60 p-2 rounded-lg border border-zinc-800">
+                          <span className="text-[8px] text-gray-500 block">إجمالي السلع المجرودة</span>
+                          <strong className="text-white text-sm font-mono">{generatedReport.stats.totalItemsCounted}</strong>
+                        </div>
+                        <div className="bg-zinc-900/60 p-2 rounded-lg border border-zinc-800">
+                          <span className="text-[8px] text-emerald-500 block">الأصناف المطابقة</span>
+                          <strong className="text-emerald-400 text-sm font-mono">{generatedReport.stats.matchingItems}</strong>
+                        </div>
+                        <div className="bg-zinc-950/90 p-2 rounded-lg border border-rose-500/20">
+                          <span className="text-[8px] text-rose-500 block">عجز المجرود الفعلي</span>
+                          <strong className="text-rose-450 text-sm font-auto text-rose-400">{generatedReport.stats.deficitCount} أصناف ({generatedReport.stats.deficitSum} قطع)</strong>
+                        </div>
+                        <div className="bg-zinc-950/90 p-2 rounded-lg border border-amber-500/20">
+                          <span className="text-[8px] text-amber-500 block">الفائض الفعلي</span>
+                          <strong className="text-amber-400 text-sm font-auto">{generatedReport.stats.surplusCount} أصناف (+{generatedReport.stats.surplusSum} قطع)</strong>
+                        </div>
+                      </div>
+
+                      {/* Table of products mismatch */}
+                      <div className="border border-zinc-900 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                        <table className="w-full text-right text-[10.5px]">
+                          <thead className="bg-zinc-900 text-gray-400 font-bold sticky top-0">
+                            <tr className="border-b border-zinc-800">
+                              <th className="p-2">الحالة والفرق</th>
+                              <th className="p-2 text-center">المجرود الفعلي</th>
+                              <th className="p-2 text-center">الرصيد بالنظام</th>
+                              <th className="p-2">اسم الصنف والمستودع</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {generatedReport.results.map((r: any) => (
+                              <tr key={r.productId} className="border-b border-zinc-900 hover:bg-zinc-900/40 text-white font-sans">
+                                <td className="p-2">
+                                  {r.diff === 0 ? (
+                                    <span className="text-emerald-400 font-black">✓ متطابق</span>
+                                  ) : r.diff < 0 ? (
+                                    <span className="text-rose-500 font-bold">عجز ({r.diff} قطعة)</span>
+                                  ) : (
+                                    <span className="text-amber-500 font-bold">فائض (+{r.diff} قطعة)</span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center font-mono">{r.countedStock}</td>
+                                <td className="p-2 text-center font-mono text-gray-400">{r.systemStock}</td>
+                                <td className="p-2 font-bold">{r.name}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Export to Google Drive connector button */}
+                      <div className="bg-zinc-900 p-3 rounded-xl border border-zinc-850 flex flex-col md:flex-row items-center justify-between gap-3 text-right">
+                        <div>
+                          <p className="text-[10px] text-gray-300 font-bold">حفظ وأرشفة هذا التقرير سحابياً</p>
+                          <p className="text-[9px] text-gray-500 pr-1 leading-normal">
+                            المجلد السحابي: <strong className="text-gray-400">Google Drive API Backup Folder</strong>
+                          </p>
+                        </div>
+
+                        <div className="flex gap-2 w-full md:w-auto">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!isGDriveActiveOnSystem) {
+                                alert("عذراً، يرجى تفعيل وربط Google Drive أولاً من لوحة 'إدارة التكاملات والدمج' لتنشيط خطاف النقل التلقائي! 📁");
+                                return;
+                              }
+                              setIsExportingReport(true);
+                              try {
+                                const reportJson = JSON.stringify(generatedReport, null, 2);
+                                const result = await googleDriveService.uploadFile({
+                                  name: `Discrepancies_Report_${generatedReport.stats.reportNo}_${currentWh.id}.json`,
+                                  mimeType: "application/json",
+                                  content: reportJson
+                                });
+                                addToast(`تم حفظ وتدقيق التقرير [${result.name}] على جوجل درايف بنجاح! 💾`, "success");
+                                addToast("✓ تم تصدير التقرير الفعلي بنجاح لجوجل درايف!", "success");
+                              } catch (e: any) {
+                                addToast(`❌ فشل النقل السحابي: ${e.message}`, "error");
+                              } finally {
+                                setIsExportingReport(false);
+                              }
+                            }}
+                            disabled={isExportingReport}
+                            className={`flex-1 py-1.5 px-3 rounded-lg text-[10px] font-black cursor-pointer transition-all border-none flex items-center justify-center gap-1 ${
+                              isGDriveActiveOnSystem 
+                                ? "bg-emerald-500 text-black hover:bg-emerald-600 active:scale-95" 
+                                : "bg-zinc-800 text-gray-500 cursor-not-allowed"
+                            }`}
+                          >
+                            <Cloud className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>{isExportingReport ? "جاري تصدير التقرير..." : "تصدير التقرير إلى Google Drive 📁"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              // Perform direct mismatch reconciliation on system backend
+                              try {
+                                if (!currentWh.items) return;
+                                
+                                const updatedItems = currentWh.items.map(item => {
+                                  const rMatch = generatedReport.results.find((r: any) => r.productId === item.productId);
+                                  return {
+                                    ...item,
+                                    stock: rMatch ? rMatch.countedStock : item.stock
+                                  };
+                                });
+
+                                const updatedWh = {
+                                  ...currentWh,
+                                  items: updatedItems
+                                };
+
+                                // Save in the Data Layer via warehouseService
+                                await warehouseService.create(updatedWh);
+                                
+                                // Redraw component view
+                                addToast("✓ تم تسوية فروقات الجرد، ومطابقة الرصيد الفعلي بنظام مستودعات سهم! 📈📊", "success");
+                                setShowSmartInventoryModal(false);
+                                setGeneratedReport(null);
+                                window.location.reload(); // Quick refresh to sync UI states safely across sheets
+                              } catch (e: any) {
+                                addToast(`فشل تسوية المستودع: ${e.message}`, "error");
+                              }
+                            }}
+                            className="py-1.5 px-3 rounded-lg text-[10px] font-black bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer transition-all border-none"
+                          >
+                            مزامنة الأرصدة وتسوية النظام الفورية ✓
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-3 border-t border-zinc-850">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSmartInventoryModal(false);
+                        setGeneratedReport(null);
+                      }}
+                      className="py-2 px-4 rounded-xl text-xs font-black bg-zinc-900 border border-zinc-800 text-gray-400 cursor-pointer"
+                    >
+                      إلغاء وإغلاق النافذة
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* D. Add product in active warehouse modal */}
           {showAddProductToWhModal && (

@@ -6,6 +6,7 @@ import NationalAddressForm from "../NationalAddressForm";
 
 interface OperationsAccountingProps {
   accounts: Account[];
+  entries?: JournalEntry[];
   onAddAutomaticJournal: (entry: JournalEntry) => void;
   theme: ThemeColors;
   customers?: Customer[];
@@ -14,12 +15,68 @@ interface OperationsAccountingProps {
 
 export default function OperationsAccounting({
   accounts,
+  entries = [],
   onAddAutomaticJournal,
   theme,
   customers = [],
   suppliers = []
 }: OperationsAccountingProps) {
   const [activeSubTab, setActiveSubTab] = useState<"expenses" | "payroll" | "fixed_assets" | "zakat_tax" | "budgets" | "aging_ar_ap">("expenses");
+
+  // Dynamic balance calculation for Zakat & VAT
+  const postedLines = useMemo(() => {
+    const lines: any[] = [];
+    (entries || []).filter(e => e.isPosted).forEach(e => {
+      e.lines.forEach(l => {
+        lines.push({ ...l, date: e.date });
+      });
+    });
+    return lines;
+  }, [entries]);
+
+  const getAccountBalance = (code: string) => {
+    const acc = accounts.find(a => a.code === code);
+    if (!acc) return 0;
+    
+    let dbSum = 0;
+    let crSum = 0;
+    postedLines.forEach(l => {
+      if (l.accountCode === code) {
+        dbSum += l.debit;
+        crSum += l.credit;
+      }
+    });
+
+    const isDebitNormal = acc.type === "assets" || acc.type === "expenses";
+    if (isDebitNormal) {
+      return dbSum - crSum;
+    } else {
+      return crSum - dbSum;
+    }
+  };
+
+  const totalCash = getAccountBalance("1101") + getAccountBalance("1102") + getAccountBalance("1103");
+  const inventoryVal = getAccountBalance("1106");
+  const arVal = getAccountBalance("1105");
+  const apVal = getAccountBalance("2101");
+
+  // Output VAT (Credits to 2103)
+  const outputVat = useMemo(() => {
+    return postedLines
+      .filter(l => l.accountCode === "2103" && l.credit > 0)
+      .reduce((sum, l) => sum + l.credit, 0);
+  }, [postedLines]);
+
+  // Input VAT (Debits to 2103)
+  const inputVat = useMemo(() => {
+    return postedLines
+      .filter(l => l.accountCode === "2103" && l.debit > 0)
+      .reduce((sum, l) => sum + l.debit, 0);
+  }, [postedLines]);
+
+  const netVatPayable = outputVat - inputVat;
+  const zakatPool = totalCash + inventoryVal + arVal - apVal;
+  const zakatDue = Math.max(zakatPool * 0.025, 0);
 
   // ----------- STATE & PRELOADS -----------
   const [expenses, setExpenses] = useState<ExpenseTransaction[]>([
@@ -477,7 +534,7 @@ export default function OperationsAccounting({
                     defaultId = customers[0]?.id || "";
                     defaultName = customers[0]?.name || "";
                   } else if (type === "branch") {
-                    defaultId = "br_riyadh_main";
+                    defaultId = "branch_riyadh_main";
                     defaultName = "فرع الرياض الرئيسي";
                   }
                   setNewExp({ ...newExp, payeeType: type, payeeId: defaultId, payeeName: defaultName });
@@ -545,10 +602,10 @@ export default function OperationsAccounting({
                 </select>
               ) : newExp.payeeType === "branch" ? (
                 <select
-                  value={newExp.payeeId || "br_riyadh_main"}
+                  value={newExp.payeeId || "branch_riyadh_main"}
                   onChange={e => {
                     const brList = [
-                      { id: "br_riyadh_main", name: "فرع الرياض الرئيسي" },
+                      { id: "branch_riyadh_main", name: "فرع الرياض الرئيسي" },
                       { id: "br_jeddah_int", name: "فرع جدة - ردسي مول" },
                       { id: "br_dammam", name: "فرع مجمع مارينا مول" },
                       { id: "br_makkah", name: "فرع العتبيات - مكة المكرمة" }
@@ -558,7 +615,7 @@ export default function OperationsAccounting({
                   }}
                   className="w-full text-xs p-2 rounded-lg border bg-slate-900 border-gray-700 text-white focus:outline-none focus:border-indigo-500"
                 >
-                  <option value="br_riyadh_main">فرع الرياض الرئيسي</option>
+                  <option value="branch_riyadh_main">فرع الرياض الرئيسي</option>
                   <option value="br_jeddah_int">فرع جدة - ردسي مول</option>
                   <option value="br_dammam">فرع مجمع مارينا مول</option>
                   <option value="br_makkah">فرع العتبيات - مكة المكرمة</option>
@@ -1035,27 +1092,27 @@ export default function OperationsAccounting({
               <div className="space-y-1.5 p-3 bg-gray-500/5 rounded-xl text-[11px]">
                 <div className="flex justify-between">
                   <span>الأرصدة النقدية والبنكية المقررة للزكاة:</span>
-                  <span>54,580 ر.س</span>
+                  <span>{totalCash.toLocaleString("ar-SA")} ر.س</span>
                 </div>
                 <div className="flex justify-between">
                   <span>قيمة بضاعة المخزون بسعر الجملة للبيع:</span>
-                  <span>42,000 ر.س</span>
+                  <span>{inventoryVal.toLocaleString("ar-SA")} ر.س</span>
                 </div>
                 <div className="flex justify-between">
                   <span>عهد وذمم العملاء المستحقة سدادها:</span>
-                  <span>18,500 ر.س</span>
+                  <span>{arVal.toLocaleString("ar-SA")} ر.س</span>
                 </div>
                 <div className="flex justify-between text-rose-400 border-b pb-1.5 mb-1.5">
                   <span>ديون الموردين مستحقة الصرف للغير (-):</span>
-                  <span>-12,400 ر.س</span>
+                  <span>-{apVal.toLocaleString("ar-SA")} ر.س</span>
                 </div>
                 <div className="flex justify-between font-black text-sky-400">
                   <span>الوعاء الشرعي الخاضع للزكاة:</span>
-                  <span>102,680 ر.س</span>
+                  <span>{zakatPool.toLocaleString("ar-SA")} ر.س</span>
                 </div>
                 <div className="flex justify-between font-black text-yellow-500 text-xs border-t pt-1.5 mt-1.5">
                   <span>مبلغ الزكاة الواجب إخراجها (2.5%):</span>
-                  <span>2,567 ر.س</span>
+                  <span>{zakatDue.toLocaleString("ar-SA")} ر.س</span>
                 </div>
               </div>
               
@@ -1074,20 +1131,20 @@ export default function OperationsAccounting({
               <div className="space-y-1.5 p-3 bg-gray-500/5 rounded-xl text-[11px]">
                 <div className="flex justify-between text-emerald-400">
                   <span>الضريبة المحصلة من المبيعات (Output VAT 15%):</span>
-                  <span>+6,240 ر.س</span>
+                  <span>+{outputVat.toLocaleString("ar-SA")} ر.س</span>
                 </div>
                 <div className="flex justify-between text-rose-400">
                   <span>الضريبة المدفوعة للمشتريات والمصارف (Input VAT 15%):</span>
-                  <span>-1,840 ر.س</span>
+                  <span>-{inputVat.toLocaleString("ar-SA")} ر.س</span>
                 </div>
                 <div className="flex justify-between font-black text-indigo-400 border-t pt-1.5 mt-1.5">
                   <span>صافي ضريبة القيمة المضافة المستحقة للدفع:</span>
-                  <span>4,400 ر.س</span>
+                  <span>{netVatPayable.toLocaleString("ar-SA")} ر.س</span>
                 </div>
               </div>
               
               <button
-                onClick={() => alert("تم ربط وإرسال الإقرار الضريبي الافتراضي لبوابة زاتكا بنجاح! 🇸🇦")}
+                onClick={() => alert(`تم ربط وإرسال الإقرار الضريبي بقيمة ${netVatPayable.toLocaleString("ar-SA")} ر.س لبوابة زاتكا بنجاح! 🇸🇦`)}
                 className="w-full py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-black cursor-pointer transition-colors"
               >
                 ربط وتقديم الإقرار الضريبي لبوابة زاتكا (ZATCA) 🇸🇦

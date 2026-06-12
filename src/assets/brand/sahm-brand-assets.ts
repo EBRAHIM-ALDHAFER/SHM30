@@ -9,12 +9,14 @@ export const GOLD_DEFS = `
   <defs>
     <!-- Metallic Primary Gold Gradient -->
     <linearGradient id="sahm-gold-metallic" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#E5C060" />
-      <stop offset="20%" stop-color="#FDF1A9" />
-      <stop offset="40%" stop-color="#D4AF37" />
-      <stop offset="60%" stop-color="#F3E794" />
-      <stop offset="80%" stop-color="#AA771C" />
-      <stop offset="100%" stop-color="#E5C060" />
+      <stop offset="0%" stop-color="#ECC86A" />
+      <stop offset="15%" stop-color="#FFFAD3" />
+      <stop offset="30%" stop-color="#D4AF37" />
+      <stop offset="45%" stop-color="#FDF2AB" />
+      <stop offset="60%" stop-color="#A27521" />
+      <stop offset="75%" stop-color="#FCEE9E" />
+      <stop offset="90%" stop-color="#B88A2D" />
+      <stop offset="100%" stop-color="#ECC86A" />
     </linearGradient>
 
     <!-- Glowing Golden Neon Accent -->
@@ -26,8 +28,8 @@ export const GOLD_DEFS = `
 
     <!-- Dark Carbon Background Gradient -->
     <radialGradient id="sahm-lux-glow" cx="50%" cy="50%" r="70%">
-      <stop offset="0%" stop-color="#0E1424" />
-      <stop offset="50%" stop-color="#050811" />
+      <stop offset="0%" stop-color="#141E34" />
+      <stop offset="45%" stop-color="#090E1A" />
       <stop offset="100%" stop-color="#020306" />
     </radialGradient>
 
@@ -62,13 +64,19 @@ export const sahmIconSvg = `
   <ellipse cx="256" cy="12" rx="45" ry="3.5" fill="#FFF9D2" filter="url(#gold-neon-glow)" />
   <ellipse cx="256" cy="500" rx="45" ry="3.5" fill="#FFF9D2" filter="url(#gold-neon-glow)" />
 
-  <!-- Subtle Mandala/Oriental Background Radial Ornament (Fine luxury lines) -->
-  <g opacity="0.08" transform="translate(256, 230) scale(0.95)">
-    <!-- Concentric geometric star patterns -->
-    <circle cx="0" cy="0" r="180" fill="none" stroke="#D4AF37" stroke-width="1.5" stroke-dasharray="3,6" />
-    <circle cx="0" cy="0" r="150" fill="none" stroke="#D4AF37" stroke-width="2" />
-    <path d="M-180,0 L180,0 M0,-180 L0,180" stroke="#D4AF37" stroke-width="1" />
-    <path d="M-127,-127 L127,127 M-127,127 L127,-127" stroke="#D4AF37" stroke-width="1" />
+  <!-- High-end elegant geometric tech circles & connections (Smart Integration Hub) -->
+  <g opacity="0.12">
+    <!-- Outer thin dashed orbital ring -->
+    <circle cx="256" cy="230" r="160" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="1" stroke-dasharray="4,8" />
+    <circle cx="256" cy="230" r="140" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="0.75" />
+    <circle cx="256" cy="230" r="110" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="1.5" stroke-dasharray="100,5,20,5" />
+    <!-- Fine connecting nodes -->
+    <circle cx="256" cy="70" r="3" fill="#FFF9D2" filter="url(#gold-neon-glow)" />
+    <circle cx="396" cy="230" r="3" fill="#FFF9D2" filter="url(#gold-neon-glow)" />
+    <circle cx="256" cy="370" r="3" fill="#FFF9D2" filter="url(#gold-neon-glow)" />
+    <circle cx="116" cy="230" r="3" fill="#FFF9D2" filter="url(#gold-neon-glow)" />
+    <line x1="256" y1="70" x2="256" y2="370" stroke="url(#sahm-gold-metallic)" stroke-width="0.5" opacity="0.3" />
+    <line x1="116" y1="230" x2="396" y2="230" stroke="url(#sahm-gold-metallic)" stroke-width="0.5" opacity="0.3" />
   </g>
 
   <!-- Left Side speed lines / light trails on the calligraphy -->
@@ -173,20 +181,24 @@ export const sahmLogoSvg = `
   </g>
 
   <!-- Elegant English Typography (Sleek Display Font) -->
-  <text x="200" y="70" font-family="'Inter', system-ui, sans-serif" font-weight="900" font-size="44" fill="#FFFFFF" letter-spacing="-1">Sahm OS</text>
+  <text x="200" y="70" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="44" fill="url(#sahm-gold-metallic)" letter-spacing="-1">Sahm OS</text>
   
   <!-- Arabic Branding (The Smart Integration Hub) -->
-  <text x="200" y="114" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="22" fill="url(#sahm-gold-metallic)">سـهــم • الربط الذكي الموحد</text>
-  <text x="200" y="140" font-family="system-ui, -apple-system, sans-serif" font-weight="bold" font-size="12" fill="#64748B" letter-spacing="0.5">نظام أتمتة المنشآت والـ ERP والتحصيل الذكي</text>
+  <text x="200" y="114" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="22" fill="#FFFFFF">سـهــم • منصة إدارة وتشغيل المنشآت والـ ERP الذكي</text>
+  <text x="200" y="140" font-family="system-ui, -apple-system, sans-serif" font-weight="bold" font-size="12" fill="#94A3B8" letter-spacing="0.5">نظام الربط الموحد وأتمتة العمليات والتحصيل الذكي</text>
 </svg>
 `;
 
 // 4. Compact Mini Brand Mark for small footers, buttons, and system badges
-// Clean deep crop focused only on central "سهم" calligraphy with absolutely transparent background (no outer frame)
+// Clean deep crop focused only on central "سهم" calligraphy with rounded premium squircle border for high-contrast visibility
 export const sahmMiniMarkSvg = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
   ${GOLD_DEFS}
-  <g transform="translate(60, 60) scale(0.31) translate(-305, -280)" filter="url(#royal-shadow)">
+  <!-- Rounded background squircle for mini mark to give it a solid premium boundary -->
+  <rect x="2" y="2" width="116" height="116" rx="28" fill="url(#sahm-lux-glow)" stroke="url(#sahm-gold-metallic)" stroke-width="1.25" />
+  <rect x="6" y="6" width="108" height="108" rx="24" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="1.5" opacity="0.6" />
+  
+  <g transform="translate(60, 60) scale(0.24) translate(-305, -280)" filter="url(#royal-shadow)">
     <!-- "س" Calligraphy Sweep -->
     <path d="M 125 285 
              C 125 220, 165 200, 175 220 
@@ -232,8 +244,10 @@ export const sahmMiniMarkSvg = `
 </svg>
 `;
 
-// Helper conversion to clean base64 data URLs for seamless <img> tag consumption across browser and frame
-const toDataUrl = (svgContent: string) => `data:image/svg+xml;utf8,${encodeURIComponent(svgContent)}`;
+const toDataUrl = (svgContent: string) => {
+  const base64 = btoa(unescape(encodeURIComponent(svgContent)));
+  return `data:image/svg+xml;base64,${base64}`;
+};
 
 export const sahmIconPngUrl = toDataUrl(sahmIconSvg);
 export const sahmLogoPngUrl = toDataUrl(sahmLogoSvg);
@@ -246,10 +260,19 @@ export const sahmSplashPngUrl = toDataUrl(`
   <!-- Cinematic glowing background -->
   <rect width="1024" height="1024" fill="url(#sahm-lux-glow)"/>
   
-  <circle cx="512" cy="380" r="320" fill="url(#sahm-gold-metallic)" opacity="0.015" />
+  <!-- Subtle circular light burst -->
+  <circle cx="512" cy="380" r="320" fill="url(#sahm-gold-metallic)" opacity="0.02" />
   
-  <!-- Outer Frame -->
-  <rect x="256" y="100" width="512" height="512" rx="110" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="3" opacity="0.4" />
+  <!-- Outer Frame with Gold Gradient -->
+  <rect x="256" y="100" width="512" height="512" rx="110" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="3" opacity="0.45" />
+  <rect x="264" y="108" width="496" height="496" rx="102" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="1.5" opacity="0.2" />
+
+  <!-- High-end geometric tech circles & connections (Smart Integration Hub) -->
+  <g opacity="0.08" transform="translate(256, 100) scale(1.0)">
+    <circle cx="256" cy="256" r="210" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="1" stroke-dasharray="4,8" />
+    <circle cx="256" cy="256" r="180" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="0.75" />
+    <circle cx="256" cy="256" r="140" fill="none" stroke="url(#sahm-gold-metallic)" stroke-width="1.5" stroke-dasharray="100,5,20,5" />
+  </g>
   
   <!-- Inside calligraphy scaled perfectly with larger target centering -->
   <g transform="translate(512, 356) scale(1.35) translate(-305, -280)" filter="url(#royal-shadow)">
@@ -262,8 +285,8 @@ export const sahmSplashPngUrl = toDataUrl(`
   </g>
 
   <!-- Typographic and brand claims (Arabic and English) -->
-  <text x="512" y="690" font-family="'Inter', system-ui, sans-serif" font-weight="950" font-size="52" fill="#FFFFFF" text-anchor="middle" letter-spacing="-1.5">Sahm OS</text>
-  <text x="512" y="745" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="28" fill="url(#sahm-gold-metallic)" text-anchor="middle">الربط الذكي والأتمتة الموحدة</text>
+  <text x="512" y="690" font-family="system-ui, -apple-system, sans-serif" font-weight="950" font-size="52" fill="url(#sahm-gold-metallic)" text-anchor="middle" letter-spacing="-1.5">Sahm OS</text>
+  <text x="512" y="745" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="28" fill="#FFFFFF" text-anchor="middle">الربط الذكي والأتمتة الموحدة للمنشآت</text>
   
   <text x="512" y="790" font-family="'JetBrains Mono', monospace" font-weight="bold" font-size="12" fill="#4B5563" text-anchor="middle" letter-spacing="1.5">SECURE ENTERPRISE SAAS SYSTEM ONLINE • INITIALIZING...</text>
 </svg>

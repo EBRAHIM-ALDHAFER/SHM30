@@ -1365,14 +1365,14 @@ export default function HelpSupport({
                           <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-right">
                             <span className="text-[8.5px] text-gray-500 block font-bold">إجمالي المبيعات LTV</span>
                             <span className="text-xs font-black text-emerald-400 font-mono">
-                              {(invoices.filter(i => i.customer === activeCustomer360Obj.name && i.type === 'sale').reduce((sum, inv) => sum + inv.total, 0)).toLocaleString()} ر.س
+                              {(invoices.filter(i => i.customer === activeCustomer360Obj.name && i.type === 'sale').reduce((sum, inv) => sum + (inv.total ?? 0), 0)).toLocaleString()} ر.س
                             </span>
                           </div>
 
                           <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-right text-xs">
                             <span className="text-[8.5px] text-gray-500 block font-bold">الحساب التجاري الحالي</span>
-                            <span className={`text-xs font-black font-mono ${activeCustomer360Obj.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                              {activeCustomer360Obj.balance.toLocaleString()} ر.س
+                            <span className={`text-xs font-black font-mono ${(activeCustomer360Obj.balance ?? 0) < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                              {(activeCustomer360Obj.balance ?? 0).toLocaleString()} ر.س
                             </span>
                           </div>
                         </div>

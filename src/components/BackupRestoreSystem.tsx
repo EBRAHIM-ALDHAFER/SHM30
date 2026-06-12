@@ -1,10 +1,23 @@
 import React, { useRef, useState, useEffect } from "react";
 import { ThemeColors } from "../types";
+import { SahmDatabaseService } from "../core/database/dbService";
 import { 
   Database, Cloud, RefreshCw, ShieldCheck, Download, Upload, 
   Trash2, AlertTriangle, ShieldAlert, CheckCircle, Info, Link, 
   FileWarning, Calendar, User, Lock, HardDrive, Clock, Server, Eye, FileSpreadsheet
 } from "lucide-react";
+const getDriveAccessToken = (): string | null => null;
+const googleSignIn = async (): Promise<any> => {
+  throw new Error("Google Drive is disabled in this environment.");
+};
+const googleSignOut = async (): Promise<void> => {};
+const googleDriveService = {
+  getOrCreateFolder: async (name: string): Promise<string> => "",
+  listFiles: async (options?: any): Promise<any[]> => [],
+  downloadFile: async (fileId: string): Promise<string> => "",
+  uploadFile: async (options: any): Promise<any> => ({ id: "", name: "" }),
+  deleteFile: async (fileId: string, fileName?: string): Promise<void> => {}
+};
 
 interface BackupRestoreSystemProps {
   theme: ThemeColors;
@@ -46,11 +59,18 @@ export default function BackupRestoreSystem({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // States for Cloud Adapters
+  const [isStrictSupabase] = useState(() => {
+    const mode = import.meta.env.VITE_DATA_MODE;
+    return mode === "supabase" || mode === "production";
+  });
+
   const [cloudAdapter, setCloudAdapter] = useState<"supabase" | "aws_s3" | "gdrive" | "backblaze" | "dropbox">(() => {
     return (localStorage.getItem("sahm_cloud_adapter") as any) || "supabase";
   });
-  const [supabaseUrl, setSupabaseUrl] = useState(() => localStorage.getItem("sahm_supabase_url") || "");
-  const [supabaseKey, setSupabaseKey] = useState(() => localStorage.getItem("sahm_supabase_key") || "");
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
   const [bucketName, setBucketName] = useState(() => localStorage.getItem("sahm_bucket_name") || "sahm-backups");
   const [postgresConnStr, setPostgresConnStr] = useState(() => localStorage.getItem("sahm_postgres_conn") || "");
   
@@ -82,6 +102,71 @@ export default function BackupRestoreSystem({
   const [restoreMode, setRestoreMode] = useState<"full" | "products" | "customers" | "invoices">("full");
   const [simulationLogs, setSimulationLogs] = useState<string[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
+
+  // Google Drive Cloud Restore states
+  const [showDriveRestoreList, setShowDriveRestoreList] = useState(false);
+  const [driveBackupsList, setDriveBackupsList] = useState<any[]>([]);
+  const [loadingDriveRestoreFiles, setLoadingDriveRestoreFiles] = useState(false);
+  const [restoringFromDriveFileId, setRestoringFromDriveFileId] = useState<string | null>(null);
+
+  const fetchDriveBackupsList = async () => {
+    const isConnected = localStorage.getItem("sahm_gdrive_connected") === "true" && getDriveAccessToken() !== null;
+    if (!isConnected) {
+      alert("حساب Google Drive الخاص بك غير متصل حالياً بقنوات الترخيص النشطة. يرجى تفعيله وربطه أولاً بالأسفل!");
+      return;
+    }
+
+    setLoadingDriveRestoreFiles(true);
+    setErrorMsg(null);
+    try {
+      const folderId = await googleDriveService.getOrCreateFolder("سهم - النسخ الاحتياطية (Sahm Backups)");
+      // List all JSON files from the backups folder
+      const files = await googleDriveService.listFiles({ folderId });
+      const backups = files.filter(f => f.name.endsWith(".json"));
+      setDriveBackupsList(backups);
+      setShowDriveRestoreList(true);
+    } catch (e: any) {
+      setErrorMsg(`تعذر جلب ملفات النسخ من Google Drive: ${e.message}`);
+    } finally {
+      setLoadingDriveRestoreFiles(false);
+    }
+  };
+
+  const handleRestoreFromDriveFile = async (fileId: string, fileName: string) => {
+    setErrorMsg(null);
+    // Validate MFA passcode
+    if (mfaSecurityPasscode && restoreMfaInput !== mfaSecurityPasscode) {
+      setErrorMsg("🚫 الرمز التأكيدي الأمني (MFA) غير صحيح. لا يمكن تجاوزه لأمان متجرك.");
+      triggerNotification("⚠️ فشل التفويض", "الرمز التأكيدي خاطئ، تم تعليق محاولة الاستعادة.", "critical");
+      return;
+    }
+
+    const confirmed = window.confirm(`هل أنت متأكد من رغبتك في استعادة وتغشية البيانات من ملف النسخة الاحتياطية سحابياً؟\nالملف: "${fileName}"\n\nتنبيه: سيتم تجاوز البيانات الحالية في النظام بمحتوى هاته النسخة.`);
+    if (!confirmed) return;
+
+    setRestoringFromDriveFileId(fileId);
+    try {
+      const content = await googleDriveService.downloadFile(fileId);
+      const parsed = JSON.parse(content);
+
+      if (!parsed || (!parsed.payload && !parsed.invoices)) {
+        throw new Error("توقيع ملف النسخة غير صالح أو معطوب.");
+      }
+
+      const payload = parsed.payload || parsed;
+      onRestore(payload);
+
+      onAddLog("استعادة من درايف", `استرجاع ناجح لقاعدة البيانات طراز ${restoreMode.toUpperCase()} ومزامنته بـ Google Drive.`);
+      triggerNotification("🔄 تم الاسترجاع حياً", `تم تفعيل ومطابقة بيانات النسخة الاحتياطية [${fileName}] المرفوعة سحابياً!`, "success");
+      setRestoreMfaInput("");
+      setShowDriveRestoreList(false);
+    } catch (err: any) {
+      setErrorMsg(`حدث خطأ أثناء تحميل أو تطبيق الاستعادة: ${err.message}`);
+      triggerNotification("❌ فشل استعادة درايف", `تعذر تطبيق الاستعادة من جوجل درايف: ${err.message}`, "critical");
+    } finally {
+      setRestoringFromDriveFileId(null);
+    }
+  };
 
   // Cloud Archive History
   const [archives, setArchives] = useState<CloudBackupRecord[]>(() => {
@@ -178,21 +263,55 @@ export default function BackupRestoreSystem({
   // Save changes to parameters automatically
   useEffect(() => {
     localStorage.setItem("sahm_cloud_adapter", cloudAdapter);
-    localStorage.setItem("sahm_supabase_url", supabaseUrl);
-    localStorage.setItem("sahm_supabase_key", supabaseKey);
+    if (!isStrictSupabase) {
+      localStorage.setItem("sahm_postgres_conn", postgresConnStr);
+    }
     localStorage.setItem("sahm_bucket_name", bucketName);
-    localStorage.setItem("sahm_postgres_conn", postgresConnStr);
     localStorage.setItem("sahm_backup_schedule", backupSchedule);
     localStorage.setItem("sahm_backup_encrypt_enabled", String(encryptionEnabled));
     localStorage.setItem("sahm_recovery_staff_restricted", String(staffRecoveryRestricted));
     localStorage.setItem("sahm_mfa_backup_passcode", mfaSecurityPasscode);
-  }, [cloudAdapter, supabaseUrl, supabaseKey, bucketName, postgresConnStr, backupSchedule, encryptionEnabled, staffRecoveryRestricted, mfaSecurityPasscode]);
+  }, [cloudAdapter, bucketName, postgresConnStr, backupSchedule, encryptionEnabled, staffRecoveryRestricted, mfaSecurityPasscode, isStrictSupabase]);
 
   // TEST CLOUD INTEGRATION CONNECTION
-  const handleTestConnection = () => {
+  const handleTestConnection = async () => {
     setIsTestingConn(true);
     setErrorMsg(null);
     setTestConnStatus("not_tested");
+
+    if (cloudAdapter === "gdrive") {
+      const token = getDriveAccessToken();
+      if (!token) {
+        setIsTestingConn(false);
+        setTestConnStatus("failed");
+        setErrorMsg("تعذر التفويض: حساب Google Drive غير مرتبط حالياً. يرجى الضغط على 'تأصيل وتفويض حساب جوجل' بالأسفل لتشغيل القناة.");
+        triggerNotification("🔑 لم يتم التفويض", "يرجى ربط وتفويض Google Drive لتأكيد صلاحيات الأرشفة.", "warning");
+        return;
+      }
+
+      try {
+        const start = Date.now();
+        const res = await fetch("https://www.googleapis.com/drive/v3/files?pageSize=1", {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setIsTestingConn(false);
+        if (res.ok) {
+          setTestConnStatus("success");
+          onAddLog("الاتصال السحابي", `نجاح فحص واجهة Google Drive API السحابية للمستودع الموحد. وقت الاستجابة: ${Date.now() - start}ms.`);
+          triggerNotification("⚡ اتصال فعال", "تم فحص واجهة Google Drive وقنوات الاتصال تعمل بأمان مطلق.", "success");
+        } else {
+          setTestConnStatus("failed");
+          setErrorMsg("رمز التفويض منتهي أو غير صالح. يرجى محاولة إلغاء تفويض الحساب وإعادة ربطه لتحديث الجلسة.");
+          triggerNotification("🔒 الترخيص منتهي", "انتهت صلاحية جلسة جوجل درايف. يرجى إعادة مصادقة هويتك.", "critical");
+        }
+      } catch (err: any) {
+        setIsTestingConn(false);
+        setTestConnStatus("failed");
+        setErrorMsg(`تعذر الاتصال بخوادم Google Drive: ${err.message}`);
+        triggerNotification("❌ فشل اختبار درايف", `حدث خطأ أثناء اختبار شبكة جوجل: ${err.message}`, "critical");
+      }
+      return;
+    }
 
     setTimeout(() => {
       // Validate credentials depending on adapter chosen
@@ -242,23 +361,85 @@ export default function BackupRestoreSystem({
       setSyncStatusText("أرشفة حركات المحاسبة وتحديث فهارس PostgreSQL...");
     }, 2000);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       // Retrieve database statistics to build realistic metadata
-      const prodList = localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : [];
-      const invList = localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : [];
-      const custList = localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : [];
+      const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
+      let prodList = [];
+      let invList = [];
+      let custList = [];
+      let suppList = [];
+      let storeList = [];
+
+      if (isSupabase) {
+        const db = SahmDatabaseService.getInstance();
+        [prodList, invList, custList, suppList, storeList] = await Promise.all([
+          db.getProducts(),
+          db.getInvoices(),
+          db.getCustomers(),
+          db.getSuppliers(),
+          db.getStores(),
+        ]);
+      } else {
+        prodList = localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : [];
+        invList = localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : [];
+        custList = localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : [];
+        suppList = localStorage.getItem("sahm_web_suppliers") ? JSON.parse(localStorage.getItem("sahm_web_suppliers")!) : [];
+        storeList = localStorage.getItem("sahm_web_stores") ? JSON.parse(localStorage.getItem("sahm_web_stores")!) : [];
+      }
 
       const payload = {
         invoices: invList,
         products: prodList,
         customers: custList,
-        suppliers: localStorage.getItem("sahm_web_suppliers") ? JSON.parse(localStorage.getItem("sahm_web_suppliers")!) : [],
-        customPlatforms: localStorage.getItem("sahm_custom_platforms") ? JSON.parse(localStorage.getItem("sahm_custom_platforms")!) : [],
-        stores: localStorage.getItem("sahm_web_stores") ? JSON.parse(localStorage.getItem("sahm_web_stores")!) : [],
+        suppliers: suppList,
+        customPlatforms: isSupabase ? [] : (localStorage.getItem("sahm_custom_platforms") ? JSON.parse(localStorage.getItem("sahm_custom_platforms")!) : []),
+        stores: storeList,
         activeStoreId: localStorage.getItem("sahm_active_store_id") || "store_1",
         storeName: localStorage.getItem("sahm_web_store") || "مراسيم الطيب للعود",
         themeKey: localStorage.getItem("sahm_web_theme") || "dark"
       };
+
+      let gdriveSuccess = true;
+      let driveFileName = "";
+      if (cloudAdapter === "gdrive") {
+        const isConnected = localStorage.getItem("sahm_gdrive_connected") === "true" && getDriveAccessToken() !== null;
+        if (!isConnected) {
+          setIsSyncing(false);
+          setIsTestingConn(false);
+          setErrorMsg("⚠️ حساب Google Drive غير مكتمل الربط! يرجى تهيئة وتنشيط الرابط أولاً بالأسفل.");
+          triggerNotification("⚠️ فشل النسخ الاحتياطي", "حساب Google Drive الخاص بك غير متصل حالياً بقنوات الترخيص النشطة.", "warning");
+          return;
+        }
+
+        try {
+          const folderId = await googleDriveService.getOrCreateFolder("سهم - النسخ الاحتياطية (Sahm Backups)");
+          const fileIdSuffix = Date.now().toString().slice(-4);
+          driveFileName = `النسخة_الاحتياطية_الشاملة_سهم_${new Date().toISOString().slice(0, 10)}_${fileIdSuffix}.json`;
+          
+          await googleDriveService.uploadFile({
+            name: driveFileName,
+            mimeType: "application/json;charset=utf-8",
+            content: JSON.stringify({
+              meta: {
+                app: "Sahm ERP SaaS Pro",
+                timestamp: new Date().toISOString(),
+                version: "v9.5-Enterprise",
+                encryption: encryptionEnabled ? "AES-256-Strict" : "None"
+              },
+              payload
+            }, null, 2),
+            folderId
+          });
+        } catch (err: any) {
+          gdriveSuccess = false;
+          setIsSyncing(false);
+          setErrorMsg(`فشل رفع النسخة الاحتياطية إلى Google Drive: ${err.message}`);
+          triggerNotification("❌ فشل النسخ السحابي", `تعذر رفع الملف إلى جوجل درايف: ${err.message}`, "critical");
+          return;
+        }
+      }
+
+      if (!gdriveSuccess) return;
 
       // Construct Backup Objects
       const newRecord: CloudBackupRecord = {
@@ -281,14 +462,38 @@ export default function BackupRestoreSystem({
 
       setIsSyncing(false);
       setSyncProgress(100);
-      onAddLog("نسخ احتياطي سحابي", `مزامنة سحابية ملوكية ناجحة لرمز ${newRecord.id}. الحجم: ${newRecord.sizeKb}KB.`);
+      onAddLog("نسخ احتياطي سحابي", `مزامنة سحابية ملوكية ناجحة لرمز ${newRecord.id}. الحجم: ${newRecord.sizeKb}KB.` + (driveFileName ? ` تم رفع الملف: ${driveFileName}` : ""));
       triggerNotification("☁️ تم النسخ الاحتياطي التلقائي", `تم تأمين وحفظ كافة البيانات على سحابة ${newRecord.adapter} بنجاح.`, "success");
     }, 2800);
   };
 
   // EXPORT LOCAL JSON DOWNLOAD
-  const handleExportBackupLocal = () => {
+  const handleExportBackupLocal = async () => {
     try {
+      const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
+      let invoices = null;
+      let products = null;
+      let customers = null;
+      let suppliers = null;
+      let stores = null;
+
+      if (isSupabase) {
+        const db = SahmDatabaseService.getInstance();
+        [invoices, products, customers, suppliers, stores] = await Promise.all([
+          db.getInvoices(),
+          db.getProducts(),
+          db.getCustomers(),
+          db.getSuppliers(),
+          db.getStores(),
+        ]);
+      } else {
+        invoices = localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : null;
+        products = localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : null;
+        customers = localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : null;
+        suppliers = localStorage.getItem("sahm_web_suppliers") ? JSON.parse(localStorage.getItem("sahm_web_suppliers")!) : null;
+        stores = localStorage.getItem("sahm_web_stores") ? JSON.parse(localStorage.getItem("sahm_web_stores")!) : null;
+      }
+
       const backupObj = {
         meta: {
           app: "Sahm ERP SaaS Pro",
@@ -297,12 +502,12 @@ export default function BackupRestoreSystem({
           encryption: encryptionEnabled ? "AES-256-Strict" : "None"
         },
         payload: {
-          invoices: localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : null,
-          products: localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : null,
-          customers: localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : null,
-          suppliers: localStorage.getItem("sahm_web_suppliers") ? JSON.parse(localStorage.getItem("sahm_web_suppliers")!) : null,
-          customPlatforms: localStorage.getItem("sahm_custom_platforms") ? JSON.parse(localStorage.getItem("sahm_custom_platforms")!) : null,
-          stores: localStorage.getItem("sahm_web_stores") ? JSON.parse(localStorage.getItem("sahm_web_stores")!) : null,
+          invoices,
+          products,
+          customers,
+          suppliers,
+          customPlatforms: isSupabase ? [] : (localStorage.getItem("sahm_custom_platforms") ? JSON.parse(localStorage.getItem("sahm_custom_platforms")!) : null),
+          stores,
           activeStoreId: localStorage.getItem("sahm_active_store_id") || null,
           storeName: localStorage.getItem("sahm_web_store") || "مراسيم الطيب للعود",
           themeKey: localStorage.getItem("sahm_web_theme") || "dark",
@@ -310,14 +515,17 @@ export default function BackupRestoreSystem({
         }
       };
 
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupObj, null, 2));
+      const jsonStr = JSON.stringify(backupObj, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
       const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("href", url);
       const fileName = `Sahm_Cloud_Encrypted_Backup_${new Date().toISOString().slice(0, 10)}.json`;
       downloadAnchor.setAttribute("download", fileName);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
-      downloadAnchor.remove();
+      document.body.removeChild(downloadAnchor);
+      URL.revokeObjectURL(url);
 
       onAddLog("تصدير محلي", "تم تحميل نسخة مطابقة لقاعدة كود سهم المشفرة محلياً.");
       triggerNotification("💾 تصدير ناجح", "تم تنزيل النسخة الأمنية المشفرة بنجاح.", "success");
@@ -327,15 +535,31 @@ export default function BackupRestoreSystem({
   };
 
   // POSTGRESQL REAL SQL DUMP DOWNLOAD
-  const handleDownloadPostgreSqlDump = () => {
+  const handleDownloadPostgreSqlDump = async () => {
     try {
       const activeStoreId = localStorage.getItem("sahm_active_store_id") || "store_1";
       const storeName = localStorage.getItem("sahm_web_store") || "مراسيم الطيب للعود";
       
-      const prodList = localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : [];
-      const invList = localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : [];
-      const custList = localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : [];
-      const suppList = localStorage.getItem("sahm_web_suppliers") ? JSON.parse(localStorage.getItem("sahm_web_suppliers")!) : [];
+      const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
+      let prodList = [];
+      let invList = [];
+      let custList = [];
+      let suppList = [];
+
+      if (isSupabase) {
+        const db = SahmDatabaseService.getInstance();
+        [prodList, invList, custList, suppList] = await Promise.all([
+          db.getProducts(),
+          db.getInvoices(),
+          db.getCustomers(),
+          db.getSuppliers(),
+        ]);
+      } else {
+        prodList = localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : [];
+        invList = localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : [];
+        custList = localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : [];
+        suppList = localStorage.getItem("sahm_web_suppliers") ? JSON.parse(localStorage.getItem("sahm_web_suppliers")!) : [];
+      }
 
       let sql = `-- =========================================================\n`;
       sql += `-- Sahm OS PostgreSQL Relational Schema SQL Dump\n`;
@@ -348,40 +572,40 @@ export default function BackupRestoreSystem({
       sql += `BEGIN;\n\n`;
       
       sql += `-- 1. Establish core structural database tables matching Supabase\n`;
-      sql += `CREATE TABLE IF NOT EXISTS s_stores (\n`;
+      sql += `CREATE TABLE IF NOT EXISTS stores (\n`;
       sql += `    id VARCHAR(100) PRIMARY KEY,\n`;
       sql += `    name VARCHAR(255) NOT NULL,\n`;
       sql += `    cr_number VARCHAR(100),\n`;
       sql += `    vat_number VARCHAR(100)\n`;
       sql += `);\n\n`;
 
-      sql += `CREATE TABLE IF NOT EXISTS s_products (\n`;
+      sql += `CREATE TABLE IF NOT EXISTS products (\n`;
       sql += `    id VARCHAR(100) PRIMARY KEY,\n`;
       sql += `    name VARCHAR(255) NOT NULL,\n`;
       sql += `    sku VARCHAR(100) UNIQUE,\n`;
       sql += `    price NUMERIC(15,2) DEFAULT 0.0,\n`;
       sql += `    cost NUMERIC(15,2) DEFAULT 0.0,\n`;
       sql += `    stock INTEGER DEFAULT 0,\n`;
-      sql += `    store_id VARCHAR(100) REFERENCES s_stores(id) ON DELETE CASCADE\n`;
+      sql += `    store_id VARCHAR(100) REFERENCES stores(id) ON DELETE CASCADE\n`;
       sql += `);\n\n`;
 
-      sql += `CREATE TABLE IF NOT EXISTS s_customers (\n`;
+      sql += `CREATE TABLE IF NOT EXISTS customers (\n`;
       sql += `    id VARCHAR(100) PRIMARY KEY,\n`;
       sql += `    name VARCHAR(255) NOT NULL,\n`;
       sql += `    phone VARCHAR(100),\n`;
       sql += `    balance NUMERIC(15,2) DEFAULT 0.0,\n`;
-      sql += `    store_id VARCHAR(100) REFERENCES s_stores(id) ON DELETE CASCADE\n`;
+      sql += `    store_id VARCHAR(100) REFERENCES stores(id) ON DELETE CASCADE\n`;
       sql += `);\n\n`;
 
-      sql += `CREATE TABLE IF NOT EXISTS s_suppliers (\n`;
+      sql += `CREATE TABLE IF NOT EXISTS suppliers (\n`;
       sql += `    id VARCHAR(100) PRIMARY KEY,\n`;
       sql += `    name VARCHAR(255) NOT NULL,\n`;
       sql += `    company VARCHAR(255),\n`;
       sql += `    balance NUMERIC(15,2) DEFAULT 0.0,\n`;
-      sql += `    store_id VARCHAR(100) REFERENCES s_stores(id) ON DELETE CASCADE\n`;
+      sql += `    store_id VARCHAR(100) REFERENCES stores(id) ON DELETE CASCADE\n`;
       sql += `);\n\n`;
 
-      sql += `CREATE TABLE IF NOT EXISTS s_invoices (\n`;
+      sql += `CREATE TABLE IF NOT EXISTS invoices (\n`;
       sql += `    id VARCHAR(100) PRIMARY KEY,\n`;
       sql += `    type VARCHAR(50) NOT NULL,\n`;
       sql += `    customer VARCHAR(255),\n`;
@@ -389,44 +613,46 @@ export default function BackupRestoreSystem({
       sql += `    status VARCHAR(50) DEFAULT 'unpaid',\n`;
       sql += `    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n`;
       sql += `    items JSONB,\n`;
-      sql += `    store_id VARCHAR(100) REFERENCES s_stores(id) ON DELETE CASCADE\n`;
+      sql += `    store_id VARCHAR(100) REFERENCES stores(id) ON DELETE CASCADE\n`;
       sql += `);\n\n`;
 
       sql += `-- 2. Inoculating and seating active store details\n`;
-      sql += `INSERT INTO s_stores (id, name, cr_number, vat_number) \n`;
+      sql += `INSERT INTO stores (id, name, cr_number, vat_number) \n`;
       sql += `VALUES ('${activeStoreId}', '${storeName.replace(/'/g, "''")}', '1010829103', '319201931900003') \n`;
       sql += `ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, cr_number = EXCLUDED.cr_number;\n\n`;
 
       sql += `-- 3. Exporting entities from products, clients, suppliers & transaction logs\n`;
       
       prodList.forEach((p: any) => {
-        sql += `INSERT INTO s_products (id, name, sku, price, cost, stock, store_id) VALUES ('${p.id}', '${p.name.replace(/'/g, "''")}', '${(p.sku || p.id).replace(/'/g, "''")}', ${p.price || 0}, ${p.cost || 0}, ${p.stock || 0}, '${activeStoreId}') ON CONFLICT (id) DO NOTHING;\n`;
+        sql += `INSERT INTO products (id, name, sku, price, cost, stock, store_id) VALUES ('${p.id}', '${p.name.replace(/'/g, "''")}', '${(p.sku || p.id).replace(/'/g, "''")}', ${p.price || 0}, ${p.cost || 0}, ${p.stock || 0}, '${activeStoreId}') ON CONFLICT (id) DO NOTHING;\n`;
       });
 
       custList.forEach((c: any) => {
-        sql += `INSERT INTO s_customers (id, name, phone, balance, store_id) VALUES ('${c.id}', '${c.name.replace(/'/g, "''")}', '${(c.phone || "").replace(/'/g, "''")}', ${c.balance || 0}, '${activeStoreId}') ON CONFLICT (id) DO NOTHING;\n`;
+        sql += `INSERT INTO customers (id, name, phone, balance, store_id) VALUES ('${c.id}', '${c.name.replace(/'/g, "''")}', '${(c.phone || "").replace(/'/g, "''")}', ${c.balance || 0}, '${activeStoreId}') ON CONFLICT (id) DO NOTHING;\n`;
       });
 
       suppList.forEach((s: any) => {
-        sql += `INSERT INTO s_suppliers (id, name, company, balance, store_id) VALUES ('${s.id}', '${s.name.replace(/'/g, "''")}', '${(s.company || "").replace(/'/g, "''")}', ${s.balance || 0}, '${activeStoreId}') ON CONFLICT (id) DO NOTHING;\n`;
+        sql += `INSERT INTO suppliers (id, name, company, balance, store_id) VALUES ('${s.id}', '${s.name.replace(/'/g, "''")}', '${(s.company || "").replace(/'/g, "''")}', ${s.balance || 0}, '${activeStoreId}') ON CONFLICT (id) DO NOTHING;\n`;
       });
 
       invList.forEach((inv: any) => {
         const itemsStr = JSON.stringify(inv.items || []).replace(/'/g, "''");
-        sql += `INSERT INTO s_invoices (id, type, customer, total, status, items, store_id) VALUES ('${inv.id}', '${inv.type}', '${(inv.customer || "").replace(/'/g, "''")}', ${inv.total || 0}, '${inv.status}', '${itemsStr}', '${activeStoreId}') ON CONFLICT (id) DO NOTHING;\n`;
+        sql += `INSERT INTO invoices (id, type, customer, total, status, items, store_id) VALUES ('${inv.id}', '${inv.type}', '${(inv.customer || "").replace(/'/g, "''")}', ${inv.total || 0}, '${inv.status}', '${itemsStr}', '${activeStoreId}') ON CONFLICT (id) DO NOTHING;\n`;
       });
 
       sql += `\nCOMMIT;\n`;
       sql += `-- ================= SQL DUMP COMPLETE =================\n`;
 
-      const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(sql);
+      const blob = new Blob([sql], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
       const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("href", url);
       const fileName = `Sahm_OS_PostgreSQL_Dump_${storeName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.sql`;
       downloadAnchor.setAttribute("download", fileName);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
-      downloadAnchor.remove();
+      document.body.removeChild(downloadAnchor);
+      URL.revokeObjectURL(url);
 
       onAddLog("تنزيل SQL Dump", `تم بنجاح استخراج ملف SQL PostgreSQL حقيقي لمتجر [${storeName}].`);
       triggerNotification("🐘 تم تفريغ SQL Dump", `تم توليد وتنزيل ملف PostgreSQL بنجاح لـ ${prodList.length} منتج و ${invList.length} فاتورة.`, "success");
@@ -441,11 +667,11 @@ export default function BackupRestoreSystem({
     setSimulationLogs(["[SYSTEM LOG] جاري قراءة وتحليل ملف SQL Dump المرفق وضمان قيود المفاتيح الأجنبية..."]);
     
     setTimeout(() => {
-      setSimulationLogs(prev => [...prev, "[OK] تم التحقق من البنية الهيكلية لجدول s_stores.", "[OK] تم تصفير الكائنات s_products و s_invoices بنجاح للاتساق الدائري."]);
+      setSimulationLogs(prev => [...prev, "[OK] تم التحقق من البنية الهيكلية لجدول stores.", "[OK] تم تصفير الكائنات products و invoices بنجاح للاتساق الدائري."]);
     }, 600);
 
     setTimeout(() => {
-      setSimulationLogs(prev => [...prev, "[OK] تم تفعيل القيود والمفاتيح الأجنبية: FOREIGN KEY (store_id) REFERENCES s_stores(id)."]);
+      setSimulationLogs(prev => [...prev, "[OK] تم تفعيل القيود والمفاتيح الأجنبية: FOREIGN KEY (store_id) REFERENCES stores(id)."]);
     }, 1200);
 
     setTimeout(() => {
@@ -522,26 +748,48 @@ export default function BackupRestoreSystem({
   };
 
   // TRASH BIN ACTIONS (Trash Hub Controls)
-  const handleRestoreTrashItem = (item: TrashItem) => {
+  const handleRestoreTrashItem = async (item: TrashItem) => {
     try {
+      const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
       // 1. Identify which array to restore to
       if (item.type === "product") {
-        const current = localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : [];
-        const updated = [item.originalData, ...current];
-        localStorage.setItem("sahm_web_products", JSON.stringify(updated));
+        let updated = [];
+        if (isSupabase) {
+          const db = SahmDatabaseService.getInstance();
+          await db.saveProduct(item.originalData);
+          updated = await db.getProducts();
+        } else {
+          const current = localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : [];
+          updated = [item.originalData, ...current];
+          localStorage.setItem("sahm_web_products", JSON.stringify(updated));
+        }
         
         // Push update back to state
         onRestore({ products: updated });
       } else if (item.type === "customer") {
-        const current = localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : [];
-        const updated = [item.originalData, ...current];
-        localStorage.setItem("sahm_web_customers", JSON.stringify(updated));
+        let updated = [];
+        if (isSupabase) {
+          const db = SahmDatabaseService.getInstance();
+          await db.saveCustomer(item.originalData);
+          updated = await db.getCustomers();
+        } else {
+          const current = localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : [];
+          updated = [item.originalData, ...current];
+          localStorage.setItem("sahm_web_customers", JSON.stringify(updated));
+        }
 
         onRestore({ customers: updated });
       } else if (item.type === "invoice") {
-        const current = localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : [];
-        const updated = [item.originalData, ...current];
-        localStorage.setItem("sahm_web_invoices", JSON.stringify(updated));
+        let updated = [];
+        if (isSupabase) {
+          const db = SahmDatabaseService.getInstance();
+          await db.saveInvoice(item.originalData);
+          updated = await db.getInvoices();
+        } else {
+          const current = localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : [];
+          updated = [item.originalData, ...current];
+          localStorage.setItem("sahm_web_invoices", JSON.stringify(updated));
+        }
 
         onRestore({ invoices: updated });
       }
@@ -657,8 +905,6 @@ export default function BackupRestoreSystem({
           <p className="text-[10.5px] text-gray-450 font-medium">{syncStatusText}</p>
         </div>
       )}
-
-      {/* ======================================= */}
       {/* TAB 1: CLOUD SYNC & PROVIDER SETTINGS */}
       {activeTab === "cloud_sync" && (
         <div className="space-y-6 animate-fade-in">
@@ -702,28 +948,15 @@ export default function BackupRestoreSystem({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Supabase Specific Fields */}
                   {cloudAdapter === "supabase" && (
-                    <>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-gray-400 block font-bold">رابط مشروع Supabase URL</label>
-                        <input
-                          type="text"
-                          placeholder="https://your-project.supabase.co"
-                          value={supabaseUrl}
-                          onChange={(e) => setSupabaseUrl(e.target.value)}
-                          className="w-full text-left p-2 rounded-lg bg-slate-950 border border-slate-850 text-xs text-white uppercase font-mono"
-                        />
+                    <div className="col-span-1 sm:col-span-2 p-4 rounded-xl bg-indigo-950/20 border border-indigo-500/20 text-right space-y-1">
+                      <div className="flex items-center gap-2 text-indigo-400 font-extrabold text-xs">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span>الاتصال بالمنصة السحابية نشط</span>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-gray-400 block font-bold">مفتاح الوصول سري (Service Role Key)</label>
-                        <input
-                          type="password"
-                          placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                          value={supabaseKey}
-                          onChange={(e) => setSupabaseKey(e.target.value)}
-                          className="w-full text-left p-2 rounded-lg bg-slate-950 border border-slate-850 text-xs text-white font-mono"
-                        />
-                      </div>
-                    </>
+                      <p className="text-[10px] text-gray-455 leading-relaxed">
+                        يتم إدارة وتأمين الاتصال بقاعدة البيانات سحابياً بالكامل عبر متغيرات البيئة المشفرة للـ API. لا يوجد أي مفاتيح محفوظة محلياً.
+                      </p>
+                    </div>
                   )}
 
                   {/* S3 or General Object Storage Fields */}
@@ -748,6 +981,68 @@ export default function BackupRestoreSystem({
                         />
                       </div>
                     </>
+                  )}
+
+                  {/* Google Drive Status & Connection manager */}
+                  {cloudAdapter === "gdrive" && (
+                    <div className="col-span-1 sm:col-span-2 p-4 rounded-xl bg-slate-950 border border-slate-850 space-y-3 font-sans text-right">
+                      <div className="flex items-center justify-between">
+                        {localStorage.getItem("sahm_gdrive_connected") === "true" && getDriveAccessToken() !== null ? (
+                          <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-extrabold bg-emerald-500/10 border border-emerald-500/15 py-1 px-3 rounded-lg">
+                            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+                            <span>متصل ونشط</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-[10px] text-amber-400 font-extrabold bg-amber-500/10 border border-amber-500/15 py-1 px-3 rounded-lg">
+                            <span className="w-1.5 h-1.5 bg-amber-400 rounded-full"></span>
+                            <span>غير متصل بعد</span>
+                          </span>
+                        )}
+                        <h5 className="text-xs font-black text-white">ترخيص قنوات Google Drive للنسخ الاحتياطي السحابي 📁</h5>
+                      </div>
+
+                      <p className="text-[10px] text-gray-400 leading-relaxed">
+                        يتيح لك ربط حساب جوجل رفع والاحتفاظ بنسخ احتياطية كاملة (.json و .csv) بشكل آمن ومنفصل في مجلد معزول خاص بمتجرك للرجوع إليها في أي وقت.
+                      </p>
+
+                      <div className="flex gap-2">
+                        {localStorage.getItem("sahm_gdrive_connected") === "true" && getDriveAccessToken() !== null ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await googleSignOut();
+                                setTestConnStatus("not_tested");
+                                triggerNotification("🛑 تم إلغاء الربط", "تم فصل حساب Google Drive بنجاح.", "info");
+                              } catch (e: any) {
+                                alert(`خطأ أثناء فصل الحساب: ${e.message}`);
+                              }
+                            }}
+                            className="py-1.5 px-3 rounded bg-red-500/15 text-red-400 hover:bg-red-500 hover:text-white font-black text-[10.5px] cursor-pointer transition-all border-none"
+                          >
+                            إلغاء ربط الحساب ✕
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const result = await googleSignIn();
+                                if (result) {
+                                  setTestConnStatus("success");
+                                  triggerNotification("🟢 تم ربط Google Drive", "تم إعداد قنوات الأرشفة السحابية بنجاح!", "success");
+                                }
+                              } catch (e: any) {
+                                triggerNotification("❌ فشل التفويض", `تعذر ربط Google Drive: ${e.message}`, "critical");
+                              }
+                            }}
+                            className="py-1.5 px-3 rounded bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500 hover:text-black font-black text-[10.5px] cursor-pointer transition-all border-none"
+                          >
+                            تأصيل وتفويض حساب جوجل 🔌
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   )}
 
                   {/* Common PostgreSQL direct connection option */}
@@ -1038,31 +1333,85 @@ export default function BackupRestoreSystem({
             </div>
 
             {/* Execute Precision restoration */}
-            <div className="border-t border-slate-900 pt-4 flex flex-col sm:flex-row gap-3">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImportLocalJson}
-                accept=".json"
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-1 py-2.5 p-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-gray-300 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Upload className="w-4 h-4 text-amber-500" />
-                <span>رفع واستعادة من ملف محلي (.json)</span>
-              </button>
+            <div className="border-t border-slate-900 pt-4 space-y-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImportLocalJson}
+                  accept=".json"
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex-1 py-2.5 p-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-gray-300 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Upload className="w-4 h-4 text-amber-500" />
+                  <span>رفع واستعادة من ملف محلي (.json)</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handlePrecisionRestore}
-                className="flex-1 py-2.5 p-3 rounded-xl bg-gradient-to-l from-rose-600 to-red-700 hover:brightness-110 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 cursor-pointer border-0"
-              >
-                <FileWarning className="w-4 h-4" />
-                <span>بدء استعادة فهارس السحاب الآن</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={fetchDriveBackupsList}
+                  disabled={loadingDriveRestoreFiles}
+                  className="flex-1 py-2.5 p-3 rounded-xl bg-emerald-950/20 hover:bg-emerald-900/30 border border-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-55"
+                >
+                  <Cloud className="w-4 h-4 text-emerald-400" />
+                  <span>{loadingDriveRestoreFiles ? "جاري جلب ملفات درايف..." : "استطلاع واستعادة من Google Drive ☁️"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePrecisionRestore}
+                  className="flex-1 py-2.5 p-3 rounded-xl bg-gradient-to-l from-rose-600 to-red-700 hover:brightness-110 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 cursor-pointer border-0"
+                >
+                  <FileWarning className="w-4 h-4" />
+                  <span>بدء استعادة فهارس السحاب الآن</span>
+                </button>
+              </div>
+
+              {/* Show Google Drive restore database backup list modal/dropdown */}
+              {showDriveRestoreList && (
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-850 space-y-3 text-right font-sans animate-fade-in mt-2">
+                  <div className="flex justify-between items-center border-b border-slate-900 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowDriveRestoreList(false)}
+                      className="text-[10px] text-gray-500 hover:text-white border-none bg-transparent cursor-pointer"
+                    >
+                      إغلاق ✕
+                    </button>
+                    <h4 className="text-[11.5px] font-black text-emerald-450">ملفات النسخ الاحتياطية المتاحة على حساب Google Drive الخاص بك</h4>
+                  </div>
+
+                  {driveBackupsList.length === 0 ? (
+                    <p className="text-[10px] text-gray-400 py-3 text-center">
+                      لم يتم العثور على أي ملفات نسخ احتياطي شاملة لمتجر سهم في مجلد ومستودع السحاب الخاص بك.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {driveBackupsList.map((file) => (
+                        <div key={file.id} className="p-2.5 rounded-lg bg-slate-900 border border-slate-850 flex items-center justify-between text-xs hover:border-slate-800 transition-all">
+                          <button
+                            type="button"
+                            disabled={restoringFromDriveFileId !== null}
+                            onClick={() => handleRestoreFromDriveFile(file.id, file.name)}
+                            className="py-1 px-3 rounded bg-emerald-500 text-black hover:bg-emerald-400 text-[10px] font-black cursor-pointer border-none disabled:opacity-40"
+                          >
+                            {restoringFromDriveFileId === file.id ? "جاري الاستيراد..." : "تطبيق واستعادة 🔄"}
+                          </button>
+                          
+                          <div className="text-right">
+                            <span className="font-extrabold text-white block text-[11px] font-mono leading-tight">{file.name}</span>
+                            <span className="text-[9px] text-gray-550 block mt-0.5">المعرف الفريد على سهم درايف: {file.id}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Staff Restriction Reminder */}

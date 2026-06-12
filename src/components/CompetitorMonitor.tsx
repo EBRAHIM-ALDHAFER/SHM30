@@ -4,10 +4,12 @@ import { competitorService } from "../core/database/competitorService";
 import { storeService } from "../core/database/storeService";
 import { notificationService } from "../core/database/notificationService";
 import { auditService } from "../core/database/auditService";
+import { productService } from "../core/database/productService";
+import { productTimelineService } from "../core/database/productTimelineService";
 import { 
   Plus, Trash2, AlertTriangle, TrendingDown, TrendingUp, ExternalLink, 
   RefreshCw, Search, Building, CheckCircle2, Bell, Bot, Globe, Link, 
-  DollarSign, Sparkles, AlertCircle, Edit, Play, Image, X, Check, Save,
+  DollarSign, Sparkles, AlertCircle, Edit, Play, Image, X, Check, Save, Zap,
   Clock, Flame, HelpCircle, Shield, RotateCcw, ChevronLeft, Calendar, FileText,
   Activity
 } from "lucide-react";
@@ -15,6 +17,7 @@ import {
 interface CompetitorMonitorProps {
   theme: ThemeColors;
   products: Product[];
+  setProducts?: (prod: Product[]) => void;
   triggerNotification?: (text: string, type?: any) => void;
   addAuditLog?: (event: string, text: string) => void;
 }
@@ -60,9 +63,41 @@ interface ScraperLog {
   message: string;
 }
 
+function computeAutoRepricePrice(
+  competitorPrice: number,
+  rule: "none" | "match" | "undercut" | "margin",
+  value: number,
+  minPrice: number,
+  cost: number
+): number {
+  if (rule === "none" || !rule) return 0;
+  
+  let newPrice = competitorPrice;
+  if (rule === "match") {
+    newPrice = competitorPrice;
+  } else if (rule === "undercut") {
+    newPrice = competitorPrice - value;
+  } else if (rule === "margin") {
+    const marginTarget = Math.min(99, Math.max(0, value)) / 100;
+    if (marginTarget < 1) {
+      newPrice = Math.round(cost / (1 - marginTarget));
+    } else {
+      newPrice = cost;
+    }
+  }
+  
+  const floorPrice = Math.max(minPrice, cost);
+  if (newPrice < floorPrice) {
+    newPrice = floorPrice;
+  }
+  
+  return newPrice;
+}
+
 export default function CompetitorMonitor({
   theme,
   products,
+  setProducts,
   triggerNotification = () => {},
   addAuditLog = () => {}
 }: CompetitorMonitorProps) {
@@ -161,6 +196,11 @@ export default function CompetitorMonitor({
   const [isScraping, setIsScraping] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [activeFilter, setActiveFilter] = useState<"all" | "alerts" | "stable">("all");
+
+  // Auto-Repricing States
+  const [reviewRepriceRule, setReviewRepriceRule] = useState<"none" | "match" | "undercut" | "margin">("none");
+  const [reviewRepriceValue, setReviewRepriceValue] = useState<number>(2);
+  const [reviewMinRepricePrice, setReviewMinRepricePrice] = useState<number>(0);
 
   // Bot scraper simulation log feed
   const [scraperLogs, setScraperLogs] = useState<ScraperLog[]>([
@@ -327,6 +367,9 @@ export default function CompetitorMonitor({
       last_checked_at: string;
       monitoring_status: string;
       fetch_source?: 'real_scrape' | 'ai_estimate' | 'manual_entry';
+      autoRepriceRule?: "none" | "match" | "undercut" | "margin";
+      autoRepriceValue?: number;
+      minRepricePrice?: number;
     } = {
       id: "track_v2_" + Date.now(),
       myProductId: reviewLinkedProductId || undefined,
@@ -371,11 +414,52 @@ export default function CompetitorMonitor({
       old_price: editOriginalPrice,
       last_checked_at: new Date().toISOString(),
       monitoring_status: "normal",
-      fetch_source: scrapedResult.fetch_source || 'manual_entry'
+      fetch_source: scrapedResult.fetch_source || 'manual_entry',
+      autoRepriceRule: reviewRepriceRule,
+      autoRepriceValue: reviewRepriceValue,
+      minRepricePrice: reviewMinRepricePrice
     };
 
     // Save to service level
     await competitorService.create(finalTrackItem as any);
+
+    // Apply auto-repricing immediately on creation
+    let immediatePriceChangeMsg = "";
+    if (reviewLinkedProductId && reviewRepriceRule !== "none") {
+      const linkedProd = products.find(p => p.id === reviewLinkedProductId);
+      if (linkedProd) {
+        const calculatedPrice = computeAutoRepricePrice(
+          editPrice,
+          reviewRepriceRule,
+          reviewRepriceValue,
+          reviewMinRepricePrice,
+          linkedProd.cost || 0
+        );
+        if (calculatedPrice > 0 && calculatedPrice !== linkedProd.price) {
+          try {
+            const updated = await productService.update(linkedProd.id, { price: calculatedPrice });
+            if (updated && setProducts) {
+              const updatedProducts = products.map(p => p.id === linkedProd.id ? updated : p);
+              setProducts(updatedProducts);
+              immediatePriceChangeMsg = ` تم تعديل سعر منتجك الداخلي تلقائياً إلى ${calculatedPrice} ر.س.`;
+            }
+            
+            await productTimelineService.createEvent({
+              event_id: `timeline_auto_price_init_${Date.now()}`,
+              product_id: linkedProd.id,
+              store_id: activeStoreId,
+              event_type: "price",
+              title: "تحديث تسعير تلقائي فوري ⚡",
+              description: `تم مواءمة وتعديل سعر منتجك تلقائياً ليصبح ${calculatedPrice} ر.س بناءً على قاعدة التسعير التلقائي (${reviewRepriceRule === 'match' ? 'مطابقة السعر' : reviewRepriceRule === 'undercut' ? 'التفوق بسعر أقل' : 'هامش الربح المستهدف'}) المختارة عند إضافة المنافس.`,
+              created_by: "وكيل سهم الذكي",
+              created_at: new Date().toISOString()
+            });
+          } catch (e) {
+            console.error("Immediate auto-repricing failed:", e);
+          }
+        }
+      }
+    }
 
     // Timeline event inside linked product (Bullet 6)
     if (reviewLinkedProductId) {
@@ -385,25 +469,26 @@ export default function CompetitorMonitor({
         store_id: activeStoreId,
         event_type: "competitor_link",
         title: "ربط ومراقبة منافس بالمنتج 🔗",
-        description: `تم ربط وتأكيد مراقبة المنافس "${finalTrackItem.competitor_name}" لمنتجك بكتالوج سهم. السعر الحالي للمنافس: ${editPrice} ر.س. المصدر: ${finalTrackItem.fetch_source === 'real_scrape' ? 'جلب حي' : 'تقدير بالذكاء'}`,
+        description: `تم ربط وتأكيد مراقبة المنافس "${finalTrackItem.competitor_name}" لمنتجك بكتالوج سهم. السعر الحالي للمنافس: ${editPrice} ر.س. المصدر: ${finalTrackItem.fetch_source === 'real_scrape' ? 'جلب حي' : 'تقدير بالذكاء'}.${immediatePriceChangeMsg}`,
         created_by: "المدير العام",
         created_at: new Date().toISOString()
       };
       
-      // We will try importing timeline service or keep it decoupled
-      const { productTimelineService } = await import("../core/database/productTimelineService");
       await productTimelineService.createEvent(pTimeline);
     }
 
     setTracks([finalTrackItem, ...tracks]);
-    addAuditLog("إضافة رصد منافس برابط ذكي", `تم جلب وتأكيد منافس (${editStore}) لمنتج (${editName}) بسعر ${editPrice} ر.س`);
-    triggerNotification(`تم تفعيل تتبع رابط المنافس وحلوله بالكتالوج بنجاح!`, "success");
+    addAuditLog("إضافة رصد منافس برابط ذكي", `تم جلب وتأكيد منافس (${editStore}) لمنتج (${editName}) بسعر ${editPrice} ر.س.${immediatePriceChangeMsg}`);
+    triggerNotification(`تم تفعيل تتبع رابط المنافس وحلوله بالكتالوج بنجاح!${immediatePriceChangeMsg}`, "success");
     addLog("success", `[حفظ المنافس] تم إضافة منتج المنافس (${editName}) وتفعيل الرصد الـ ${trackingInterval === 'daily' ? 'اليومي الجاري' : trackingInterval === 'weekly' ? 'الأسبوعي' : 'اليدوي'}`);
     
     // Cleanup states
     setShowScrapeReview(false);
     setScrapedResult(null);
     setUrlInput("");
+    setReviewRepriceRule("none");
+    setReviewRepriceValue(2);
+    setReviewMinRepricePrice(0);
   };
 
   // Re-fetch review trigger
@@ -415,8 +500,11 @@ export default function CompetitorMonitor({
 
   // Simulate price changes and trigger appropriate alert statuses
   const simulatePriceUpdateWithAlert = async (itemId: string, scenario: "dropped" | "raised" | "out_of_stock" | "stock_revived" | "content_changed" | "stable") => {
-    setTracks(prev => prev.map(item => {
-      if (item.id === itemId) {
+    let autoPriceAlertMsg = "";
+    
+    // Update tracks state
+    const updatedTracks = await Promise.all(tracks.map(async (item) => {
+      if (item.id === itemId || item.competitor_product_id === itemId) {
         let newPrice = item.currentPrice;
         let originalPrice = item.originalPrice;
         let availability = item.availability;
@@ -438,7 +526,7 @@ export default function CompetitorMonitor({
             newPrice = Math.round(item.currentPrice * 1.15); // Raise 15%
             status = "price_raised";
             logType = "raised";
-            alertMessage = `تنبيه ارتفاع سعر المنافس (${item.competitorName}): زاد السعر من ${item.currentPrice} ر.س إلى ¹${newPrice} ر.س 📈`;
+            alertMessage = `تنبيه ارتفاع سعر المنافس (${item.competitorName}): زاد السعر من ${item.currentPrice} ر.س إلى ${newPrice} ر.س 📈`;
             break;
           case "out_of_stock":
             availability = "غير متوفر";
@@ -464,7 +552,7 @@ export default function CompetitorMonitor({
             addLog("success", `تم فحص رابط منتج ${item.competitorName} والأسعار ثابتة ومستقرة تماماً على ${newPrice} ر.س.`);
             return {
               ...item,
-              status: "normal",
+              status: "normal" as any,
               lastUpdated: new Date().toLocaleDateString("ar-SA") + " " + new Date().toTimeString().split(' ')[0].slice(0, 5)
             };
         }
@@ -478,6 +566,43 @@ export default function CompetitorMonitor({
         if (scenario === "raised") changeAr = "ارتفاع سعر";
         if (scenario === "out_of_stock") changeAr = "نفاد";
         if (scenario === "stock_revived") changeAr = "عودة التوفر";
+
+        // Auto pricing engine evaluation
+        if (item.myProductId && item.autoRepriceRule && item.autoRepriceRule !== "none") {
+          const linkedProd = products.find(p => p.id === item.myProductId);
+          if (linkedProd) {
+            const calculatedPrice = computeAutoRepricePrice(
+              newPrice,
+              item.autoRepriceRule,
+              item.autoRepriceValue || 0,
+              item.minRepricePrice || 0,
+              linkedProd.cost || 0
+            );
+            if (calculatedPrice > 0 && calculatedPrice !== linkedProd.price) {
+              try {
+                const updated = await productService.update(linkedProd.id, { price: calculatedPrice });
+                if (updated && setProducts) {
+                  const updatedProducts = products.map(p => p.id === linkedProd.id ? updated : p);
+                  setProducts(updatedProducts);
+                  autoPriceAlertMsg = ` 💸 [تسعير تلقائي]: تم تحديث سعر منتجك "${linkedProd.name}" تلقائياً ليصبح ${calculatedPrice} ر.س.`;
+                }
+
+                await productTimelineService.createEvent({
+                  event_id: `timeline_auto_price_${Date.now()}`,
+                  product_id: linkedProd.id,
+                  store_id: storeService.getActiveStoreId(),
+                  event_type: "price",
+                  title: "تحديث تسعير تلقائي ⚡",
+                  description: `قام محرك سهم لتحديث الأسعار بإعادة تسعير المنتج تلقائياً إلى ${calculatedPrice} ر.س بناءً على تغير سعر المنافس وسياسة (${item.autoRepriceRule === 'match' ? 'مطابقة السعر' : item.autoRepriceRule === 'undercut' ? 'التفوق بسعر أقل' : 'نسبة الربح المستهدفة'}).`,
+                  created_by: "وكيل سهم الذكي",
+                  created_at: new Date().toISOString()
+                });
+              } catch (err) {
+                console.error("Auto-pricing background update failed:", err);
+              }
+            }
+          }
+        }
 
         // Build new history log matching BOTH interfaces!
         const newHistoryLog = {
@@ -497,13 +622,12 @@ export default function CompetitorMonitor({
         };
 
         // Trigger native application alerts and logs
-        triggerNotification(alertMessage, scenario === "dropped" ? "warning" : "info");
-        addAuditLog("تنبيه تتبع منافس", alertMessage);
+        triggerNotification(alertMessage + autoPriceAlertMsg, scenario === "dropped" ? "warning" : "info");
+        addAuditLog("تنبيه تتبع منافس", alertMessage + autoPriceAlertMsg);
         
         let logActionType: "info" | "success" | "warning" | "error" = "info";
         if (scenario === "dropped") logActionType = "warning";
         if (scenario === "out_of_stock") logActionType = "error";
-        if (scenario === "stock_revived") logActionType = "success";
         
         addLog(logActionType, `[رصد تلقائي] ${alertMessage}`);
 
@@ -655,28 +779,77 @@ export default function CompetitorMonitor({
     <div className="space-y-6 text-right" dir="rtl">
       
       {/* Top Banner and Headers */}
-      <div className="p-6 rounded-2xl border text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden"
-           style={{ backgroundColor: "rgb(15 23 42)", borderColor: theme.border }}>
-        <div className="space-y-1 relative z-10">
-          <div className="flex items-center gap-2">
-            <span className="p-1 px-2.5 rounded bg-amber-500 text-slate-950 font-black text-[9.5px] tracking-wide uppercase">
-              الرصد التلقائي AI 📡
-            </span>
-            <span className="text-gray-400 font-mono text-[10px]">• مُفعل بالكامل</span>
+      <div className="p-6 rounded-2xl border text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative overflow-hidden transition-all duration-300 hover:shadow-[0_0_20px_rgba(212,175,55,0.08)]"
+           style={{ 
+             background: `radial-gradient(circle at top right, rgba(212, 175, 55, 0.06) 0%, ${theme.surface} 100%)`, 
+             borderColor: theme.border 
+           }}>
+        <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-br from-amber-500/5 to-emerald-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+        
+        <div className="flex flex-col md:flex-row items-center gap-5 relative z-10">
+          {/* Double-ring compliance gauge */}
+          <div className="relative w-20 h-20 flex items-center justify-center shrink-0 bg-black/45 rounded-2xl border border-zinc-800/60 p-2 shadow-inner">
+            <div className="absolute inset-0">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="2.5" />
+                <circle 
+                  cx="18" 
+                  cy="18" 
+                  r="16" 
+                  fill="none" 
+                  stroke="#10B981" 
+                  strokeWidth="2.5" 
+                  strokeDasharray="100" 
+                  strokeDashoffset="2" 
+                  strokeLinecap="round"
+                  className="transition-all duration-1000 ease-out"
+                />
+              </svg>
+            </div>
+            <div className="absolute inset-1.5">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="2" />
+                <circle 
+                  cx="18" 
+                  cy="18" 
+                  r="16" 
+                  fill="none" 
+                  stroke="#D4AF37" 
+                  strokeWidth="2" 
+                  strokeDasharray="100" 
+                  strokeDashoffset="8" 
+                  strokeLinecap="round"
+                  className="transition-all duration-1000 ease-out"
+                />
+              </svg>
+            </div>
+            <div className="text-center z-10">
+              <span className="block text-xs font-black text-white font-mono leading-none">98%</span>
+              <span className="block text-[7.5px] text-amber-450 mt-0.5 leading-none">جودة الرصد</span>
+            </div>
           </div>
-          <h2 className="text-lg md:text-xl font-black font-sans leading-tight" style={{ color: theme.text }}>
-            منظومة كشّاف ورصد المنافسين الذكية
-          </h2>
-          <p className="text-xs text-gray-400 font-medium leading-relaxed max-w-2xl">
-            ضغطة زر واحدة تمكنك من وضع رابط منتج منافس على سلة، زد، أمازون أو نون لمعرفة ميتاداتا المتجر،
-            وجلب صورته وسعره دورياً مع مقارنة هوامش ربحك وتوصيات AI الفورية.
-          </p>
+
+          <div className="space-y-1 text-center md:text-right">
+            <div className="flex items-center justify-center md:justify-start gap-2">
+              <span className="p-1 px-2.5 rounded bg-amber-500 text-slate-950 font-black text-[9.5px] tracking-wide uppercase">
+                الرصد التلقائي AI 📡
+              </span>
+              <span className="text-gray-400 font-mono text-[10px]">• مُفعل بالكامل</span>
+            </div>
+            <h2 className="text-lg md:text-xl font-black font-sans leading-tight" style={{ color: theme.text }}>
+              منظومة كشّاف ورصد المنافسين الذكية
+            </h2>
+            <p className="text-xs text-gray-400 font-medium leading-relaxed max-w-xl">
+              ضغطة زر واحدة تمكنك من وضع رابط منتج منافس على سلة، زد، أمازون أو نون لمعرفة ميتاداتا المتجر،
+              وجلب صورته وسعره دورياً مع مقارنة هوامش ربحك وتوصيات AI الفورية.
+            </p>
+          </div>
         </div>
 
         <button 
           onClick={handleBulkScanAll}
           disabled={isScraping || tracks.length === 0}
-          className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black rounded-lg transition-all flex items-center gap-2 shadow-lg hover:shadow-amber-500/25 cursor-pointer disabled:opacity-40 select-none shrink-0"
+          className="px-4 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 text-xs font-black rounded-lg transition-all flex items-center gap-2 shadow-lg hover:shadow-amber-500/25 cursor-pointer disabled:opacity-40 select-none shrink-0 relative z-10 border-0"
         >
           {isScraping ? (
             <RefreshCw className="w-4 h-4 animate-spin" />
@@ -689,54 +862,98 @@ export default function CompetitorMonitor({
 
       {/* Quick Overview Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl border flex items-center justify-between"
-             style={{ backgroundColor: theme.surface, borderColor: theme.border }}>
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-gray-500 block uppercase">الروابط المستهدفة بالرصد</span>
-            <h4 className="text-xl font-black font-sans" style={{ color: theme.text }}>
-              {tracks.length} <span className="text-[10px] text-gray-400 font-normal">منتجات منافسين</span>
-            </h4>
-          </div>
-          <span className="p-3 rounded-lg bg-indigo-500/10 text-indigo-400">
-            <Globe className="w-5 h-5" />
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl border flex items-center justify-between"
-             style={{ backgroundColor: theme.surface, borderColor: theme.border }}>
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-red-500 block uppercase">التنبيهات وتغيرات الأسعار النشطة</span>
-            <h4 className="text-xl font-black font-sans text-red-500">
-              {tracks.filter(t => t.status !== "normal").length} <span className="text-[10px] text-gray-400 font-normal">تحديث لافت</span>
-            </h4>
-          </div>
-          <span className="p-3 rounded-lg bg-red-500/10 text-red-500 animate-pulse">
-            <Bell className="w-5 h-5 animate-bounce" />
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl border flex items-center justify-between"
-             style={{ backgroundColor: theme.surface, borderColor: theme.border }}>
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-emerald-500 block">منصات التغطية المقررة</span>
-            <span className="text-xs font-black block text-emerald-400 leading-normal">
-              سلة • زد • أمازون • نون
+        <div className="p-4 rounded-xl border flex flex-col justify-between gap-3 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
+             style={{ 
+               background: `radial-gradient(circle at bottom left, rgba(56, 189, 248, 0.03) 0%, ${theme.surface} 100%)`, 
+               borderColor: theme.border 
+             }}>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-gray-500 block uppercase">الروابط المستهدفة بالرصد</span>
+              <h4 className="text-xl font-black font-sans" style={{ color: theme.text }}>
+                {tracks.length} <span className="text-[10px] text-gray-400 font-normal">منتجات منافسين</span>
+              </h4>
+            </div>
+            <span className="p-3 rounded-lg bg-indigo-500/10 text-indigo-400 shadow-sm">
+              <Globe className="w-5 h-5" />
             </span>
           </div>
-          <span className="p-3 rounded-lg bg-emerald-500/10 text-emerald-400">
-            <Shield className="w-5 h-5" />
-          </span>
+          {/* Sparkline */}
+          <div className="h-6 w-full opacity-80 mt-1">
+            <svg className="w-full h-full" viewBox="0 0 100 25" preserveAspectRatio="none">
+              <path d="M0,20 Q20,5 40,15 T80,5 T100,10" fill="none" stroke="#38BDF8" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
         </div>
 
-        <div className="p-4 rounded-xl border flex items-center justify-between"
-             style={{ backgroundColor: theme.surface, borderColor: theme.border }}>
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-amber-500 block">معدل التحديث والـ AI تماشي</span>
-            <h4 className="text-xs font-bold leading-relaxed text-amber-500">تلقائي تزامني مستمر ⚡</h4>
+        <div className="p-4 rounded-xl border flex flex-col justify-between gap-3 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
+             style={{ 
+               background: `radial-gradient(circle at bottom left, rgba(239, 68, 68, 0.03) 0%, ${theme.surface} 100%)`, 
+               borderColor: theme.border 
+             }}>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-red-500 block uppercase">التنبيهات وتغيرات الأسعار النشطة</span>
+              <h4 className="text-xl font-black font-sans text-red-500">
+                {tracks.filter(t => t.status !== "normal").length} <span className="text-[10px] text-gray-400 font-normal">تحديث لافت</span>
+              </h4>
+            </div>
+            <span className="p-3 rounded-lg bg-red-500/10 text-red-500 animate-pulse shadow-sm">
+              <Bell className="w-5 h-5 animate-bounce" />
+            </span>
           </div>
-          <span className="p-3 rounded-lg bg-amber-500/10 text-amber-400">
-            <Bot className="w-5 h-5" />
-          </span>
+          {/* Sparkline */}
+          <div className="h-6 w-full opacity-80 mt-1">
+            <svg className="w-full h-full" viewBox="0 0 100 25" preserveAspectRatio="none">
+              <path d="M0,15 Q15,25 30,5 T60,25 T90,5 T100,20" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl border flex flex-col justify-between gap-3 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
+             style={{ 
+               background: `radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.03) 0%, ${theme.surface} 100%)`, 
+               borderColor: theme.border 
+             }}>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-emerald-500 block">منصات التغطية المقررة</span>
+              <span className="text-xs font-black block text-emerald-400 leading-normal">
+                سلة • زد • أمازون • نون
+              </span>
+            </div>
+            <span className="p-3 rounded-lg bg-emerald-500/10 text-emerald-400 shadow-sm">
+              <Shield className="w-5 h-5" />
+            </span>
+          </div>
+          {/* Sparkline */}
+          <div className="h-6 w-full opacity-80 mt-1">
+            <svg className="w-full h-full" viewBox="0 0 100 25" preserveAspectRatio="none">
+              <path d="M0,25 Q20,10 40,20 T80,5 T100,8" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl border flex flex-col justify-between gap-3 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
+             style={{ 
+               background: `radial-gradient(circle at bottom left, rgba(212, 175, 55, 0.03) 0%, ${theme.surface} 100%)`, 
+               borderColor: theme.border 
+             }}>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-amber-500 block">معدل التحديث والـ AI تماشي</span>
+              <h4 className="text-xs font-bold leading-relaxed text-amber-500">تلقائي تزامني مستمر ⚡</h4>
+            </div>
+            <span className="p-3 rounded-lg bg-amber-500/10 text-amber-400 shadow-sm">
+              <Bot className="w-5 h-5" />
+            </span>
+          </div>
+          {/* Sparkline */}
+          <div className="h-6 w-full opacity-80 mt-1">
+            <svg className="w-full h-full" viewBox="0 0 100 25" preserveAspectRatio="none">
+              <path d="M0,15 Q15,5 30,22 T60,8 T90,20 T100,5" fill="none" stroke="#D4AF37" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
         </div>
       </div>
 
@@ -953,6 +1170,56 @@ export default function CompetitorMonitor({
                       className="w-full text-xs p-2.5 rounded-lg border outline-none bg-slate-950/40 font-medium leading-relaxed resize-none"
                       style={{ borderColor: theme.border, color: theme.text }}
                     ></textarea>
+                  </div>
+
+                  {/* Auto-pricing rule settings inside review modal */}
+                  <div className="p-3.5 rounded-xl border border-amber-500/20 bg-slate-950/30 space-y-3">
+                    <span className="text-[10.5px] font-black text-amber-500 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                      <span>قاعدة التسعير التلقائي الفوري (Auto-Repricing Policy)</span>
+                    </span>
+                    <div className="space-y-2.5">
+                      <div className="space-y-1">
+                        <label className="text-[9px] text-gray-400 block font-bold">تطبيق سياسة عند اكتشاف تغير بالأسعار:</label>
+                        <select
+                          value={reviewRepriceRule}
+                          onChange={(e) => setReviewRepriceRule(e.target.value as any)}
+                          className="w-full text-xs p-2 rounded-lg bg-slate-900 border border-slate-700 text-gray-200 cursor-pointer"
+                        >
+                          <option value="none">تعطيل التسعير التلقائي (تنبيه فقط) ❌</option>
+                          <option value="match">مطابقة سعر المنافس 🔗</option>
+                          <option value="undercut">التفوق بسعر أقل بـ (ريال) 📉</option>
+                          <option value="margin">نسبة ربح مستهدفة للسلعة (%) 📈</option>
+                        </select>
+                      </div>
+
+                      {reviewRepriceRule !== "none" && reviewRepriceRule !== "match" && (
+                        <div className="space-y-1">
+                          <label className="text-[9px] text-gray-400 block font-bold">
+                            {reviewRepriceRule === "undercut" ? "مقدار الخصم من سعر المنافس (ر.س):" : "نسبة الهامش المستهدفة (%):"}
+                          </label>
+                          <input
+                            type="number"
+                            value={reviewRepriceValue}
+                            onChange={(e) => setReviewRepriceValue(parseFloat(e.target.value) || 0)}
+                            className="w-full text-xs p-2 rounded-lg bg-slate-900 border border-slate-700 text-gray-200"
+                          />
+                        </div>
+                      )}
+
+                      {reviewRepriceRule !== "none" && (
+                        <div className="space-y-1">
+                          <label className="text-[9px] text-gray-400 block font-bold">الحد الأدنى للسعر المقبول (لحماية هامش الخسارة):</label>
+                          <input
+                            type="number"
+                            value={reviewMinRepricePrice}
+                            onChange={(e) => setReviewMinRepricePrice(parseFloat(e.target.value) || 0)}
+                            className="w-full text-xs p-2 rounded-lg bg-slate-900 border border-slate-700 text-gray-200"
+                            placeholder="مثال: 100"
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1365,6 +1632,80 @@ export default function CompetitorMonitor({
                               <option value="weekly">أسبوعي</option>
                             </select>
                           </div>
+                        </div>
+                      </div>
+
+                      {/* Auto-Pricing Policy Configuration Block */}
+                      <div className="p-3 rounded-xl border border-slate-900/60 bg-slate-950/15 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black text-amber-500 flex items-center gap-1">
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>سياسة التسعير التلقائي للربط (Auto-Pricing Policy)</span>
+                          </span>
+                          {item.autoRepriceRule && item.autoRepriceRule !== "none" ? (
+                            <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-black animate-pulse">
+                              نشط ⚡
+                            </span>
+                          ) : (
+                            <span className="text-[9px] bg-slate-900 text-slate-400 border border-slate-850 px-2 py-0.5 rounded-full">
+                              معطل
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[9px] text-gray-400 block font-bold">السياسة المعتمدة:</label>
+                            <select
+                              value={item.autoRepriceRule || "none"}
+                              onChange={async (e) => {
+                                const newRule = e.target.value as any;
+                                setTracks(prev => prev.map(t => (t.id === item.id || t.competitor_product_id === item.id) ? { ...t, autoRepriceRule: newRule } : t));
+                                await competitorService.update(item.id || item.competitor_product_id || "", { autoRepriceRule: newRule });
+                                triggerNotification("تم تحديث سياسة التسعير التلقائي للمنتج بنجاح", "success");
+                              }}
+                              className="w-full text-[9.5px] p-2 rounded-lg bg-slate-900 border border-slate-800 text-gray-300 cursor-pointer"
+                            >
+                              <option value="none">تعطيل التسعير التلقائي ❌</option>
+                              <option value="match">مطابقة سعر المنافس 🔗</option>
+                              <option value="undercut">التفوق بسعر أقل بـ (ر.س) 📉</option>
+                              <option value="margin">نسبة ربح مستهدفة (%) 📈</option>
+                            </select>
+                          </div>
+                          
+                          {item.autoRepriceRule && item.autoRepriceRule !== "none" && item.autoRepriceRule !== "match" && (
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-gray-400 block font-bold">
+                                {item.autoRepriceRule === "undercut" ? "خصم (ريال):" : "الهامش المستهدف (%):"}
+                              </label>
+                              <input
+                                type="number"
+                                value={item.autoRepriceValue !== undefined ? item.autoRepriceValue : 2}
+                                onChange={async (e) => {
+                                  const newVal = parseFloat(e.target.value) || 0;
+                                  setTracks(prev => prev.map(t => (t.id === item.id || t.competitor_product_id === item.id) ? { ...t, autoRepriceValue: newVal } : t));
+                                  await competitorService.update(item.id || item.competitor_product_id || "", { autoRepriceValue: newVal });
+                                }}
+                                className="w-full text-[9.5px] p-2 rounded-lg bg-slate-900 border border-slate-800 text-gray-300"
+                              />
+                            </div>
+                          )}
+                          
+                          {item.autoRepriceRule && item.autoRepriceRule !== "none" && (
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-gray-400 block font-bold">الحد الأدنى للسعر (ر.س):</label>
+                              <input
+                                type="number"
+                                value={item.minRepricePrice !== undefined ? item.minRepricePrice : 0}
+                                onChange={async (e) => {
+                                  const newVal = parseFloat(e.target.value) || 0;
+                                  setTracks(prev => prev.map(t => (t.id === item.id || t.competitor_product_id === item.id) ? { ...t, minRepricePrice: newVal } : t));
+                                  await competitorService.update(item.id || item.competitor_product_id || "", { minRepricePrice: newVal });
+                                }}
+                                className="w-full text-[9.5px] p-2 rounded-lg bg-slate-900 border border-slate-800 text-gray-300"
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
 

@@ -9,12 +9,20 @@ const LS_KEYS = {
 };
 
 const getMode = () => {
-  return (import.meta as any).env?.VITE_DATA_MODE || (typeof localStorage !== "undefined" && localStorage.getItem("sahm_supabase_connected") === "true" ? "production" : "demo");
+  const mode = import.meta.env.VITE_DATA_MODE;
+  if (mode === "supabase" || mode === "production") return "production";
+  return "demo";
 };
+
+let memoryTransfers: StockTransfer[] | null = null;
 
 export const inventoryService = {
   // --- CATEGORIES ---
   getCategories: async (activeStoreId?: string): Promise<any[]> => {
+    const db = SahmDatabaseService.getInstance();
+    if (getMode() === "production") {
+      return db.getCategories(activeStoreId);
+    }
     try {
       const saved = localStorage.getItem(LS_KEYS.CATEGORIES);
       const list = saved ? JSON.parse(saved) : [];
@@ -28,6 +36,10 @@ export const inventoryService = {
   },
 
   saveCategory: async (category: any): Promise<any> => {
+    const db = SahmDatabaseService.getInstance();
+    if (getMode() === "production") {
+      return db.saveCategory(category);
+    }
     try {
       const saved = localStorage.getItem(LS_KEYS.CATEGORIES);
       const list = saved ? JSON.parse(saved) : [];
@@ -42,7 +54,7 @@ export const inventoryService = {
   getBranches: async (activeStoreId?: string): Promise<Branch[]> => {
     const db = SahmDatabaseService.getInstance();
     let list: Branch[] = [];
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       list = await db.getBranches();
     } else {
       try {
@@ -58,7 +70,7 @@ export const inventoryService = {
 
   saveBranch: async (branch: Branch): Promise<Branch> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveBranch(branch);
     }
     try {
@@ -79,7 +91,7 @@ export const inventoryService = {
   getWarehouses: async (activeStoreId?: string): Promise<Warehouse[]> => {
     const db = SahmDatabaseService.getInstance();
     let list: Warehouse[] = [];
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       list = await db.getWarehouses();
     } else {
       try {
@@ -95,7 +107,7 @@ export const inventoryService = {
 
   saveWarehouse: async (warehouse: Warehouse): Promise<Warehouse> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveWarehouse(warehouse);
     }
     try {
@@ -114,6 +126,13 @@ export const inventoryService = {
 
   // --- TRANSFERS ---
   getTransfers: async (activeStoreId?: string): Promise<StockTransfer[]> => {
+    if (getMode() === "production") {
+      if (!memoryTransfers) memoryTransfers = [];
+      if (activeStoreId) {
+        return memoryTransfers.filter((t: any) => !t.store_id || t.store_id === activeStoreId);
+      }
+      return memoryTransfers;
+    }
     try {
       const saved = localStorage.getItem(LS_KEYS.TRANSFERS);
       const list = saved ? JSON.parse(saved) : [];
@@ -127,6 +146,16 @@ export const inventoryService = {
   },
 
   saveTransfer: async (transfer: StockTransfer): Promise<StockTransfer> => {
+    if (getMode() === "production") {
+      if (!memoryTransfers) memoryTransfers = [];
+      const idx = memoryTransfers.findIndex(t => t.id === transfer.id);
+      if (idx > -1) {
+        memoryTransfers[idx] = transfer;
+      } else {
+        memoryTransfers.push(transfer);
+      }
+      return transfer;
+    }
     try {
       const saved = localStorage.getItem(LS_KEYS.TRANSFERS);
       let list: StockTransfer[] = saved ? JSON.parse(saved) : [];

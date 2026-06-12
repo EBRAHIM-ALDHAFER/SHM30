@@ -139,4 +139,92 @@
   -webkit-backdrop-filter: blur(12px);
 }
 
+/* 💎 Premium Global Style Overrides using Theme CSS Variables */
+:root {
+  --bg-color: #050814;
+  --surface-color: #0a0f24;
+  --card-color: #0d1527;
+  --border-color: #16223f;
+  --text-color: #f8fafc;
+  --muted-color: #64748b;
+  --accent-color: #D4AF37;
+  --border-radius: 24px;
+  --card-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(212, 175, 55, 0.05);
+}
+
+/* Scale border radiuses according to active theme */
+.rounded-2xl {
+  border-radius: var(--border-radius, 16px) !important;
+}
+
+.rounded-xl {
+  border-radius: calc(var(--border-radius, 16px) * 0.7) !important;
+}
+
+.rounded-3xl {
+  border-radius: calc(var(--border-radius, 16px) * 1.5) !important;
+}
+
+.border, .border-slate-800, .border-zinc-800, .border-slate-900 {
+  border-color: var(--border-color, #16223f) !important;
+}
+
+/* Apply elite transition and glows to all standard theme cards */
+div[style*="background-color"][style*="border-color"] {
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  box-shadow: var(--card-shadow, 0 10px 40px rgba(0, 0, 0, 0.4)) !important;
+}
+
+div[style*="background-color"][style*="border-color"]:hover {
+  transform: translateY(-2px) scale(1.002) !important;
+  box-shadow: 0 15px 45px rgba(0, 0, 0, 0.55), 0 0 25px rgba(212, 175, 55, 0.08) !important;
+  border-color: var(--accent-color, #D4AF37) !important;
+}
+
+/* Premium Inputs and Select Fields across all components */
+input[type="text"], input[type="number"], input[type="email"], input[type="password"], select, textarea {
+  border-radius: calc(var(--border-radius, 16px) * 0.5) !important;
+  background-color: rgba(5, 8, 20, 0.6) !important;
+  border: 1px solid var(--border-color, #16223f) !important;
+  color: var(--text-color, #f8fafc) !important;
+  transition: all 0.25s ease !important;
+  outline: none !important;
+}
+
+input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
+  border-color: var(--accent-color, #D4AF37) !important;
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.15) !important;
+}
+
+/* High-fidelity Table styles */
+table th {
+  background-color: rgba(9, 15, 36, 0.5) !important;
+  border-bottom: 1px solid var(--border-color, #16223f) !important;
+  color: var(--text-color, #f8fafc) !important;
+}
+
+table td {
+  border-bottom: 1px solid rgba(22, 34, 63, 0.4) !important;
+}
+
+/* Premium Scrollbars styling */
+::-webkit-scrollbar-thumb {
+  background: var(--border-color, #16223f) !important;
+  border-radius: 9px !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-color, #D4AF37) !important;
+}
+
+/* Rounded borders for buttons */
+button {
+  border-radius: calc(var(--border-radius, 16px) * 0.6) !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+button:hover {
+  filter: brightness(1.15) !important;
+}
+
 

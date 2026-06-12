@@ -298,9 +298,9 @@ export default function SaaSBlueprint({ theme, user }: SaaSBlueprintProps) {
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
             <span>بناء معايير SaaS الاحترافية الكبرى للشركات والمنصات 🔌</span>
           </div>
-          <h2 className="text-xl font-black md:text-2xl tracking-tight leading-snug">رؤية سهم كشركة SaaS متكاملة للهيئات والتجارة الذكية (Sahm AI Engine)</h2>
+          <h2 className="text-xl font-black md:text-2xl tracking-tight leading-snug">سهم 2030 • رؤية سهم الذكية للتحول التجاري والرقمي</h2>
           <p className="text-xs leading-relaxed max-w-4xl text-gray-400">
-            أنت تنظر على مخطط إعادة البناء والهيكلة الكاملة لمنصة <span className="text-emerald-400 font-bold">ERP سهم الذكي</span> لتصبح منصة SaaS جماهيرية جاهزة لخدمة آلاف المتاجر الإلكترونية في السعودية وحول الخليج العربي بالمدفوعات المتكاملة والمزامنة الفورية وتحليلي الزكاة.
+            أنت تستكشف مخطط التحول الاستراتيجي الكامل لمنصة <span className="text-emerald-400 font-bold">Sahm OS</span> كعلامة SaaS جماهيرية متكاملة لرقمنة وتطوير أعمال المنشآت الصغيرة والمتوسطة والمتاجر، ارتباطاً برؤية المملكة العربية السعودية 2030 لدعم الكيانات التجارية ومجتمع الريادة التقني.
           </p>
         </div>
 
@@ -513,6 +513,45 @@ export default function SaaSBlueprint({ theme, user }: SaaSBlueprintProps) {
                   </div>
                 </div>
               </div>
+
+              {/* Saudi Vision 2030 & SME Support Strategic Alignment */}
+              <div className="p-5 rounded-2xl border space-y-4 text-right" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                <div className="flex items-center gap-2 border-b pb-2.5" style={{ borderColor: theme.border }}>
+                  <Globe className="w-4.5 h-4.5 text-amber-500 animate-pulse" />
+                  <h3 className="text-xs font-black" style={{ color: theme.text }}>محاور التحول الرقمي وأهداف سهم 2030 الاستراتيجية 🇸🇦✨</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-right animate-fade-in text-xs leading-relaxed">
+                  <div className="p-3.5 rounded-xl bg-gradient-to-br from-amber-500/5 to-transparent border border-amber-500/15 space-y-1.5">
+                    <span className="text-[#D4AF37] font-black text-xs block">🎯 ارتباط سهم برؤية المملكة 2030</span>
+                    <p className="text-[10px] text-gray-400 leading-relaxed">
+                      نساهم في تحقيق مستهدفات الرؤية عبر تنشيط قطاع الاقتصاد الرقمي، ورفع مساهمة المنشآت الصغيرة في الناتج المحلي والارتقاء بكفاءة البيئة التجارية محلياً وإقليمياً.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 space-y-1.5">
+                    <span className="text-emerald-400 font-black text-xs block">👥 خدمة المنشآت الصغيرة والمتوسطة (SMEs)</span>
+                    <p className="text-[10px] text-gray-400 leading-relaxed">
+                      يسهل Sahm OS على رواد الأعمال والمتاجر إطلاق عملياتهم بأقل تكلفة تشغيلية، مما يتيح تفرغهم لتطوير صناعاتهم بدون تعقيد برمي للمبيعات والمحاسبة والأتمتة.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 space-y-1.5">
+                    <span className="text-sky-400 font-black text-xs block">🚀 فرص النمو والنموذج اللامركزي</span>
+                    <p className="text-[10px] text-gray-400 leading-relaxed">
+                      خطة نمو سهم تعتمد على دمج سلاسل التوريد والخدمات اللوجستية مباشرة، لتسهيل وصول صغار المصنعين والمتاجر إلى قاعدة موردين موثوقة محلياً ودولياً بحلول دفع مرنة.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 space-y-1.5">
+                    <span className="text-indigo-400 font-black text-xs block">⚡ التحول الرقمي الشامل للتجارة</span>
+                    <p className="text-[10px] text-gray-400 leading-relaxed">
+                      تأصيل لثقافة اللاورقية (Paperless Era) وحوسبة عمليات البيع ونقاط العمل الميدانية بالكامل عبر الربط التلقائي واللوحات التفاعلية الحية.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
             </div>
 
             {/* SaaS Simulation Calculator Widget (Right 1-column) */}

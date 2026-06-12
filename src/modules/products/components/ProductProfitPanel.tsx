@@ -22,7 +22,7 @@ export function ProductProfitPanel({
     <div className="space-y-6 text-right font-sans">
       
       <div className="border-r-4 border-amber-500 pr-4">
-        <h3 className="text-base font-black text-white">تدقيق التكلفة وهوامش الأرباح الإدارية للكاشير ⚖️</h3>
+        <h3 className="text-base font-black text-white">تدقيق التكلفة وهوامش الأرباح الإدارية للكاشير</h3>
         <p className="text-xs text-gray-400">المركز المحاسبي لتحليل الأداء الاستثماري وقيمة السلع الرأسمالية بالمستودعات</p>
       </div>
 
@@ -42,7 +42,7 @@ export function ProductProfitPanel({
         </div>
 
         <div className="p-4 rounded-xl border border-slate-800 bg-slate-900">
-          <span className="text-[10px] text-gray-400 font-bold block uppercase mb-1 font-sans">الأرباح التشغيلية المتوقعة الصافية ✨</span>
+          <span className="text-[10px] text-gray-400 font-bold block uppercase mb-1 font-sans">الأرباح التشغيلية المتوقعة الصافية</span>
           <span className="text-xl font-black" style={{ color: theme.accent }}>{formatMoney(totalProjectedProfit)}</span>
           <p className="text-[9px] text-gray-400 mt-2 leading-relaxed font-sans leading-normal">الأرباح المستقبلية المضمونة بعد تصريف جميع وحدات المستودعات.</p>
         </div>
@@ -144,7 +144,7 @@ export function ProductProfitPanel({
             {products.filter(p => p.price - p.cost <= 50).slice(0, 3).map(p => (
               <div key={p.id} className="p-2.5 rounded bg-amber-500/5 border border-amber-500/10 flex justify-between items-center text-xs">
                 <span className="font-sans text-gray-300">{p.name}</span>
-                <strong className="text-amber-500">+{formatMoney(p.price - p.cost)} فقط  ⚠️</strong>
+                <strong className="text-amber-500">+{formatMoney(p.price - p.cost)} فقط</strong>
               </div>
             ))}
           </div>

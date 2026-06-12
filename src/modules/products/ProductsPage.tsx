@@ -10,6 +10,7 @@ import { ProductProfitPanel } from "./components/ProductProfitPanel";
 import { ProductDetails } from "./components/ProductDetails";
 import { exportToExcel, exportToPDF } from "../../utils/exportUtils";
 import { formatMoney } from "./services/productUiService";
+import { SahmDatabaseService } from "../../core/database/dbService";
 
 import { 
   Plus, Search, Tag, DollarSign, Package2, ShieldAlert, BarChart, 
@@ -45,9 +46,24 @@ export default function ProductsPage({
     }
   });
 
+  const [inventorySubTab, setInventorySubTab] = useState<"warehouses" | "branches">("warehouses");
+
   useEffect(() => {
     localStorage.setItem("products_active_segment", activeSegment);
   }, [activeSegment]);
+
+  useEffect(() => {
+    const handleSegmentChange = () => {
+      const saved = localStorage.getItem("products_active_segment");
+      if (saved === "inventory_branches" || saved === "products_categories" || saved === "costs_profits") {
+        setActiveSegment(saved as any);
+      }
+    };
+    window.addEventListener("products_tab_change", handleSegmentChange);
+    return () => {
+      window.removeEventListener("products_tab_change", handleSegmentChange);
+    };
+  }, []);
   const [showCatalogBuilder, setShowCatalogBuilder] = useState(false);
   const [catalogInitialProduct, setCatalogInitialProduct] = useState<Product | null>(null);
   const [catalogInitialCategory, setCatalogInitialCategory] = useState<string | null>(null);
@@ -56,6 +72,7 @@ export default function ProductsPage({
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
   const [isAddWarehouseOpen, setIsAddWarehouseOpen] = useState(false);
   const [isAddBranchOpen, setIsAddBranchOpen] = useState(false);
+  const [showSafetyModal, setShowSafetyModal] = useState(false);
 
   const [customCategories, setCustomCategories] = useState<{
     id: string;
@@ -67,6 +84,10 @@ export default function ProductsPage({
     isActive: boolean;
   }[]>(() => {
     try {
+      const db = SahmDatabaseService.getInstance();
+      if (db.isSupabaseModeOnly()) {
+        return [];
+      }
       const saved = localStorage.getItem("sahm_web_custom_categories");
       return saved ? JSON.parse(saved) : [];
     } catch {
@@ -75,7 +96,36 @@ export default function ProductsPage({
   });
 
   useEffect(() => {
-    localStorage.setItem("sahm_web_custom_categories", JSON.stringify(customCategories));
+    const loadDbCategories = async () => {
+      const db = SahmDatabaseService.getInstance();
+      try {
+        const dbCats = await db.getCategories();
+        if (dbCats && dbCats.length > 0) {
+          const mapped = dbCats.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            description: c.description || "",
+            icon: c.icon || "🏷️",
+            color: c.color || "#D4AF37",
+            parent: c.parent || undefined,
+            isActive: c.is_active !== false && c.isActive !== false
+          }));
+          setCustomCategories(mapped);
+        }
+      } catch (err) {
+        console.warn("Error loading categories from database:", err);
+      }
+    };
+    loadDbCategories();
+  }, []);
+
+  useEffect(() => {
+    const db = SahmDatabaseService.getInstance();
+    if (!db.isSupabaseModeOnly()) {
+      localStorage.setItem("sahm_web_custom_categories", JSON.stringify(customCategories));
+    } else {
+      localStorage.removeItem("sahm_web_custom_categories");
+    }
   }, [customCategories]);
 
   // Form structure initial states
@@ -149,6 +199,12 @@ export default function ProductsPage({
       parent: catForm.parent || undefined,
       isActive: catForm.isActive
     };
+    
+    // Save category to database (Supabase)
+    SahmDatabaseService.getInstance().saveCategory(newCat).catch(err => {
+      console.error("Failed to save category to Supabase database:", err);
+    });
+
     setCustomCategories(prev => [...prev, newCat]);
     triggerNotification(`تم تسجيل التصنيف الجديد "${newCat.name}" بنجاح 🏷️`, "success");
     if (addAuditLog) {
@@ -264,7 +320,7 @@ export default function ProductsPage({
         address: "",
         manager: "",
         phone: "",
-        associatedWh: hook.warehouses[0]?.id || "wh_central_riyadh",
+        associatedWh: hook.warehouses[0]?.id || "warehouse_1",
         isActive: true
       });
 
@@ -373,146 +429,257 @@ export default function ProductsPage({
       {activeStoreId === "all_stores" && (
         <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs font-bold leading-relaxed flex items-center justify-between gap-3 animate-fade-in shadow-lg">
           <div className="flex items-center gap-2">
-            <span className="text-base">ℹ️</span>
-            <span>
-              <strong>وضع العرض الموحد نشط:</strong> يمكنك تصفح دليل المنتجات الموحد، مستودعات فروع سهم، ومؤشرات التكاليف والأرباح لكافة المتاجر. لإجراء تعديلات تشغيلية مثل: (إضافة أصناف، تعديل المخزون، نشر المنتجات المباشرة، أو إتمام التحويلات بين الفروع)، يرجى تحديد متجر أو علامة تجارية مخصصة من شريط البحث العلوي.
-            </span>
+            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>تنبيه: أنت تستعرض حالياً وضع العرض الموحد لجميع المتاجر. قوانين التشغيل تمنع إضافة أو تعديل منتجات أو تصنيفات أو مستودعات في هذا الوضع.</span>
           </div>
-          <span className="bg-amber-400 text-black text-[9px] font-black px-2 py-1 rounded-md shrink-0 uppercase tracking-widest font-mono">وضع العرض فقط</span>
         </div>
       )}
-      
-      {/* 🚀 Main Header of Products and Warehouses Navigation Hub */}
-      <div className="p-4 rounded-2xl border text-right space-y-4 shadow-sm relative overflow-hidden" 
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+
+      {/* Main Header of Products and Warehouses Navigation Hub */}
+      <div className="p-4 rounded-2xl border text-right shadow-md relative overflow-hidden transition-all duration-300 hover:shadow-[0_0_25px_rgba(212,175,55,0.08)]" 
+        style={{
+          background: `radial-gradient(circle at top right, rgba(212, 175, 55, 0.08) 0%, rgba(13, 21, 39, 0.95) 100%)`,
+          borderColor: theme.border
+        }}>
         <div className="absolute left-0 top-0 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
         
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4" style={{ borderColor: theme.border }}>
-          <div className="flex flex-row-reverse md:flex-row items-center justify-between w-full md:w-auto gap-4">
+        {/* Main Content Layout Grid */}
+        <div className="flex flex-col md:flex-row justify-between items-stretch gap-4 relative z-10">
+          
+          {/* Right Column: Title and Tabs Selector (Stacked vertically) */}
+          <div className="flex flex-col justify-between items-start flex-grow text-right">
+            
+            {/* Title & Description (Raised slightly) */}
             <div className="text-right">
-              <h2 className="text-lg font-black flex items-center gap-2 justify-end animate-fade-in" style={{ color: theme.text }}>
-                <Package2 className="w-5 h-5 text-amber-500 animate-pulse" />
-                <span>إدارة المنتجات والمستودعات الموحدة 📦🏢</span>
+              <h2 className="text-lg font-black animate-fade-in" style={{ color: theme.text }}>
+                إدارة المنتجات والمستودعات الموحدة
               </h2>
-              <p className="text-[11px] mt-1" style={{ color: theme.muted }}>
+              <p className="text-[11px] mt-0.5" style={{ color: theme.muted }}>
                 مستودعات فروع سهم، جرد المخزون المركزي، تصنيف البضائع وحساب تكاليف وهوامش الأرباح الإدارية
               </p>
             </div>
- 
-            {/* Smart Catalog Builder Master Hub Button */}
-            {!(user?.role === "كاشير" || user?.role === "موظف خدمة عملاء") && (
-              <button
-                onClick={() => {
-                  if (activeStoreId === "all_stores") {
-                    if (triggerNotification) {
-                      triggerNotification("⚠️ صناعة الكتالوجات ونشر المنتجات غير متاح في وضع العرض الموحد. يرجى اختيار متجر أولاً.", "error");
-                    }
-                    return;
-                  }
-                  setCatalogInitialProduct(null);
-                  setCatalogInitialCategory(null);
-                  setShowCatalogBuilder(true);
-                }}
-                className="py-2.5 px-4 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-550/10 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer border-none font-sans"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-black animate-pulse" />
-                <span>+ صناعة كتالوج 📚✨</span>
-              </button>
-            )}
+
+            {/* Master Navigation & Sub-Menu */}
+            <div className="flex flex-col items-start gap-2.5 mt-3 w-full">
+              
+              {/* Main Segment Tabs */}
+              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/95 border border-slate-800 overflow-x-auto" dir="rtl">
+                {[
+                  { id: "products_categories", label: "المنتجات والتصنيفات", icon: Package2, iconColor: "text-sky-400" },
+                  { id: "inventory_branches", label: "المخزون والمستودعات", icon: WarehouseIcon, iconColor: "text-amber-500" },
+                  { id: "costs_profits", label: "التكاليف والأرباح", icon: TrendingUp, iconColor: "text-sky-400" }
+                ].map((tab) => {
+                  const isActive = activeSegment === tab.id;
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveSegment(tab.id as any)}
+                      className={`py-2 px-4 rounded-lg text-xs font-black transition-all cursor-pointer border-none bg-transparent whitespace-nowrap flex items-center gap-2 ${
+                        isActive ? "bg-amber-500 text-black shadow-lg" : "text-gray-400 hover:text-white"
+                      }`}
+                      style={{ backgroundColor: isActive ? theme.accent : "" }}
+                    >
+                      <Icon className={`w-3.5 h-3.5 ${isActive ? "text-black" : tab.iconColor}`} />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Sub-Tabs & Catalog Button Row */}
+              <div className="flex flex-wrap items-center gap-2.5 w-full justify-start mt-1" dir="rtl">
+                
+                {/* Sub-Tabs (shows right below, cleanly indented/connected) */}
+                {activeSegment === "inventory_branches" && (
+                  <div className="flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-950/40 border border-slate-850 overflow-x-auto animate-fade-in relative pr-6" dir="rtl">
+                    {/* Hierarchical arrow indicator */}
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-500 font-bold">↳</span>
+                    <button
+                      type="button"
+                      onClick={() => setInventorySubTab("warehouses")}
+                      className={`py-1.5 px-3.5 rounded-lg text-[11px] font-black transition-all cursor-pointer border-none bg-transparent whitespace-nowrap flex items-center gap-1.5 ${
+                        inventorySubTab === "warehouses"
+                          ? "bg-slate-800 text-amber-400 border border-amber-500/30 shadow"
+                          : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      <ClipboardList className={`w-3.5 h-3.5 ${inventorySubTab === "warehouses" ? "text-amber-400" : "text-amber-500"}`} />
+                      <span>المستودعات والجرد</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInventorySubTab("branches")}
+                      className={`py-1.5 px-3.5 rounded-lg text-[11px] font-black transition-all cursor-pointer border-none bg-transparent whitespace-nowrap flex items-center gap-1.5 ${
+                        inventorySubTab === "branches"
+                          ? "bg-slate-800 text-emerald-400 border border-emerald-500/30 shadow"
+                          : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      <Store className={`w-3.5 h-3.5 ${inventorySubTab === "branches" ? "text-emerald-400" : "text-sky-400"}`} />
+                      <span>المعارض والفروع</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Smart Catalog Builder Master Hub Button */}
+                {!(user?.role === "كاشير" || user?.role === "موظف خدمة عملاء") && (
+                  <button
+                    onClick={() => {
+                      if (activeStoreId === "all_stores") {
+                        if (triggerNotification) {
+                          triggerNotification("⚠️ صناعة الكتالوجات ونشر المنتجات غير متاح في وضع العرض الموحد. يرجى اختيار متجر أولاً.", "error");
+                        }
+                        return;
+                      }
+                      setCatalogInitialProduct(null);
+                      setCatalogInitialCategory(null);
+                      setShowCatalogBuilder(true);
+                    }}
+                    className="py-1.5 px-3.5 rounded-lg text-[11px] font-black bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-550/10 active:scale-95 transition-all cursor-pointer border-none font-sans whitespace-nowrap flex items-center gap-1.5"
+                  >
+                    <span>صناعة كتالوج</span>
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
+              </div>
+
+            </div>
+
           </div>
 
-          {/* Master Segment Tabs Selector */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-slate-900/95 border border-slate-800">
-            {[
-              { id: "products_categories", label: "المنتجات والتصنيفات 🏷️", icon: Layers },
-              { id: "inventory_branches", label: "المخزون والفروع 🏢", icon: WarehouseIcon },
-              { id: "costs_profits", label: "التكلفة والأرباح ⚖️", icon: DollarSign }
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeSegment === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveSegment(tab.id as any)}
-                  className={`py-2 px-3.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border-none bg-transparent ${isActive ? "bg-amber-500 text-black shadow-lg" : "text-gray-400 hover:text-white"}`}
-                  style={{ backgroundColor: isActive ? theme.accent : "" }}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
+          {/* Left Column: Premium Sparkline Chart Card (Aligned on the far left) */}
+          <div className="flex flex-col justify-center items-start shrink-0 select-none">
+            <div 
+              onClick={() => setShowSafetyModal(true)}
+              className="relative overflow-hidden w-72 md:w-96 h-36 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 flex flex-col justify-between shadow-[0_4px_30px_rgba(0,0,0,0.6)] hover:border-slate-700/80 transition-all duration-300 group cursor-pointer active:scale-[0.98] select-none"
+            >
+              {/* Glowing Background Effect */}
+              <div className="absolute -left-8 -bottom-8 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl group-hover:bg-emerald-500/15 transition-all duration-300" />
+              
+              {/* Header inside widget */}
+              <div className="flex items-center justify-between w-full relative z-10" style={{ direction: "rtl" }}>
+                <div className="flex flex-col text-right">
+                  <span className="text-xs text-slate-300 font-black">مؤشر كفاءة وسلامة المخازن الموحد</span>
+                  <span className="text-[9px] text-slate-500 mt-0.5">تحديث مباشر لكافة الفروع والمستودعات</span>
+                </div>
+                <span className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black text-emerald-400">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>+1.2%</span>
+                </span>
+              </div>
+
+              {/* Chart Value & Sparkline Container */}
+              <div className="flex items-end justify-between w-full mt-3 relative z-10">
+                <div className="flex flex-col text-right">
+                  <span className="text-3xl font-black text-white font-mono tracking-tight leading-none">98.4%</span>
+                  <span className="text-[10px] text-emerald-400 font-bold mt-2 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    معدل تشغيل وأمان ممتاز
+                  </span>
+                </div>
+                
+                {/* Custom Sparkline SVG with Grid */}
+                <div className="w-36 md:w-44 h-16 overflow-hidden relative">
+                  <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="sparklineGradXLarge" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10B981" stopOpacity="0.45" />
+                        <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+                    {/* Grid lines for aesthetic depth */}
+                    <line x1="0" y1="8" x2="100" y2="8" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+                    <line x1="0" y1="16" x2="100" y2="16" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+                    <line x1="0" y1="24" x2="100" y2="24" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+                    <line x1="0" y1="32" x2="100" y2="32" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+                    {/* Area Fill */}
+                    <path
+                      d="M0,35 C15,32 25,18 40,22 C55,26 70,8 85,12 C90,14 95,8 100,6 L100,40 L0,40 Z"
+                      fill="url(#sparklineGradXLarge)"
+                    />
+                    {/* Stroke line */}
+                    <path
+                      d="M0,35 C15,32 25,18 40,22 C55,26 70,8 85,12 C90,14 95,8 100,6"
+                      fill="none"
+                      stroke="#10B981"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    {/* Active point indicator */}
+                    <circle cx="100" cy="6" r="3" fill="#10B981" />
+                    <circle cx="100" cy="6" r="6" fill="none" stroke="#10B981" strokeWidth="1" className="animate-ping" style={{ transformOrigin: '100px 6px' }} />
+                  </svg>
+                </div>
+              </div>
+            </div>
           </div>
+
         </div>
-      </div>
 
-      {/* 🔮 Active Router Contents */}
-      <div className="transition-all duration-300">
+        {/* Cohesive Divider Line */}
+        <div className="h-[1px] bg-slate-800/80 my-5 relative z-10" />
+
+        {/* 🔮 Active Router Contents */}
+        <div className="transition-all duration-300 relative z-10">
         
         {/* ======================= 1. PRODUCTS & CATEGORIES SUB-TAB ======================= */}
         {activeSegment === "products_categories" && (
           <div className="space-y-6">
             
-            {/* Action Bar for Adding Categories */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/40 p-4 rounded-xl border border-slate-800">
-              <div>
-                <h3 className="text-sm font-black text-white flex items-center gap-1.5 justify-end">
-                  <Layers className="w-4 h-4 text-amber-500" />
-                  <span>دليل الأصناف والفئات السحابية 🏷️</span>
-                </h3>
-                <p className="text-[11px] text-gray-400 mt-1">اضغط على أي تصنيف بالأسفل لفلترة السلع وعرض محتوياته فوراً، أو أضف تصنيفاً جديداً لدليل الـ ERP</p>
+            {/* 🟢 شريط موحد لإجراءات المنتجات والتصنيفات */}
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between p-3.5 rounded-xl border border-slate-800 bg-slate-900/70" style={{ direction: "rtl", borderColor: theme.border }}>
+              <div className="text-right flex items-center gap-2">
+                <Layers className="w-4 h-4 text-amber-500 animate-pulse" />
+                <span className="text-xs font-black text-white">إجراءات المنتجات والتصنيفات</span>
               </div>
-              {!(user?.role === "كاشير" || user?.role === "موظف خدمة عملاء") && (
+              
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                {/* 1. إضافة تصنيف */}
+                {!(user?.role === "كاشير" || user?.role === "موظف خدمة عملاء") && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddCategoryOpen(true)}
+                    className="text-[10px] py-1.5 px-3 rounded-lg font-bold bg-slate-950 text-gray-400 hover:text-white border border-slate-800 transition-all cursor-pointer select-none active:scale-95"
+                  >
+                    + إضافة تصنيف
+                  </button>
+                )}
+
+                {/* 2. إدخال صنف يدوي (الزر الأساسي) */}
                 <button
                   type="button"
-                  onClick={() => setIsAddCategoryOpen(true)}
-                  className="py-2.5 px-4 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-black flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border-none shadow-md shadow-emerald-500/10 shrink-0 font-sans"
+                  onClick={() => {
+                    if (activeStoreId === "all_stores") {
+                      if (triggerNotification) triggerNotification("⚠️ قوانين التشغيل تمنع إضافة منتجات جديدة في وضع العرض الموحد. يرجى تفعيل متجر محدد أولاً.", "error");
+                      return;
+                    }
+                    hook.setShowNew(true);
+                  }}
+                  className="text-[10px] py-1.5 px-3.5 rounded-lg font-black bg-amber-500 text-black hover:bg-amber-400 transition-all cursor-pointer shadow-lg shadow-amber-500/10 select-none active:scale-95 flex items-center gap-1"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>+ إضافة تصنيف جديد</span>
+                  <Plus className="w-3 h-3" />
+                  <span>إدخال صنف يدوي</span>
                 </button>
-              )}
-            </div>
 
-            {/* 1. Classification breakdown interactive selector cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pb-2 select-none">
-              {[
-                ...DEFAULT_CATEGORIES.map(name => ({ id: name, name, icon: "✨", color: "#D4AF37", isActive: true })),
-                ...customCategories
-              ].map((cat) => {
-                const countInCat = products.filter(p => p.category === cat.name).length;
-                const valueInCat = products.filter(p => p.category === cat.name).reduce((sum, p) => sum + (p.price * p.stock), 0);
-                const isActive = hook.selectedCategory === cat.name;
-
-                return (
-                  <div 
-                    key={cat.id} 
-                    onClick={() => hook.setSelectedCategory(isActive ? "all" : cat.name)}
-                    className={`p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden select-none active:scale-[0.98] text-right ${
-                      isActive 
-                        ? "bg-amber-955/40 bg-amber-950/20 shadow-md shadow-amber-500/10" 
-                        : "border-slate-800 bg-slate-900/60 hover:bg-slate-900 hover:border-slate-700"
-                    }`}
-                    style={{ borderColor: isActive ? theme.accent || "#FBBF24" : "" }}
-                  >
-                    {isActive && (
-                      <span className="absolute top-0 left-0 w-full h-[3px]" style={{ backgroundColor: theme.accent || "#FBBF24" }} />
-                    )}
-                    <div className="flex justify-between items-start">
-                      <span className="text-[17px]">{cat.icon || "🏷️"}</span>
-                      {isActive && <span className="w-1.5 h-1.5 rounded-full bg-amber-550 animate-pulse" style={{ backgroundColor: theme.accent }} />}
-                    </div>
-                    <h4 className="text-xs font-black text-white mt-2 truncate" title={cat.name}>{cat.name}</h4>
-                    <div className="flex justify-between items-center mt-3 font-mono">
-                      <span className="text-[9px] text-gray-500 font-sans">القيمة المادية</span>
-                      <span className="text-[10px] text-amber-500 font-extrabold">{formatMoney(valueInCat)}</span>
-                    </div>
-                    <div className="text-left mt-0.5">
-                      <span className="text-[9px] font-bold text-gray-400 font-mono">{countInCat} صنف مسجل</span>
-                    </div>
-                  </div>
-                );
-              })}
+                {/* 3. صياغة صنف بالذكاء الاصطناعي */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeStoreId === "all_stores") {
+                      if (triggerNotification) triggerNotification("⚠️ لا يمكن استخدام صانع المنتجات الذكي في وضع العرض الموحد. يرجى تفعيل متجر أولاً.", "error");
+                      return;
+                    }
+                    hook.setShowAIBuilder(true);
+                  }}
+                  className="text-[10px] py-1.5 px-3 rounded-lg font-bold bg-slate-950 text-amber-500 hover:text-amber-400 border border-slate-800 transition-all cursor-pointer flex items-center gap-1 shrink-0 select-none active:scale-95"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-500 animate-pulse" />
+                  <span>صياغة صنف بالذكاء الاصطناعي</span>
+                </button>
+              </div>
             </div>
 
             {/* Products grid columns */}
@@ -522,6 +689,7 @@ export default function ProductsPage({
               <div className="lg:col-span-2">
                 <ProductList
                   products={products}
+                  customCategories={customCategories}
                   theme={theme}
                   searchTerm={hook.searchTerm}
                   setSearchTerm={hook.setSearchTerm}
@@ -563,7 +731,7 @@ export default function ProductsPage({
                   handleExportPDF={handleExportPDF}
                   handleExportExcel={handleExportExcel}
                   filteredList={filteredList}
-                  onOpenCatalog={(p?: Product) => {
+                  onOpenCatalog={(p) => {
                     if (activeStoreId === "all_stores") {
                       if (triggerNotification) triggerNotification("⚠️ تزويد ونشر السلع بالكتالوجات معطل في وضع العرض الموحد.", "error");
                       return;
@@ -582,7 +750,7 @@ export default function ProductsPage({
                   product={hook.selectedProduct}
                   theme={theme}
                   triggerNotification={triggerNotification}
-                  onOpenCatalog={(p?: Product) => {
+                  onOpenCatalog={(p) => {
                     if (activeStoreId === "all_stores") {
                       if (triggerNotification) triggerNotification("⚠️ نشر وعرض الكتالوجات الفورية معطل في وضع العرض الموحد لجميع المتاجر.", "error");
                       return;
@@ -596,14 +764,13 @@ export default function ProductsPage({
               </div>
 
             </div>
-
             {/* Prestige Brands & Custom Tags Footer segment */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-800/80" style={{ borderColor: theme.border }}>
               
               {/* Prestige Brands */}
               <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/10 text-right space-y-3">
                 <h4 className="text-xs font-black text-white flex items-center gap-1.5 justify-end">
-                  <Star className="w-4 h-4 text-amber-500 animate-spin-slow" />
+                  <Star className="w-4 h-4 text-amber-550 animate-spin-slow" />
                   <span>العلامات التجارية والشركاء المعتمدة (Prestige Brands)</span>
                 </h4>
                 <p className="text-[10px] text-gray-400">توزيع السلع في الأنظمة وعقد التوزيع للبراندات الموثقة للعود والبخور المحاسبي:</p>
@@ -624,7 +791,7 @@ export default function ProductsPage({
                 </h4>
                 <p className="text-[10px] text-gray-400">الوسوم المحاسبية والضريبية المعتمدة لخصومات وسلات الربط الذكي:</p>
                 <div className="flex flex-wrap gap-2 justify-end pt-1">
-                  {["عود طبيعي", "دخون مسك", "هدايا فاخرة", "عبوة توفيرية", "الأكثر طلباً 🔥", "العودة للمدارس", "تخفيضات كبرى 🏷️"].map((tag) => (
+                  {["عود طبيعي", "دخون مسك", "هدايا فاخرة", "عبوة توفيرية", "الأكثر طلباً", "العودة للمدارس", "تخفيضات كبرى"].map((tag) => (
                     <span key={tag} className="text-[10px] py-1 px-2.5 rounded-full bg-slate-950 border border-slate-850 text-amber-400/90 font-bold hover:scale-105 transition-all cursor-default">
                       #{tag}
                     </span>
@@ -636,86 +803,58 @@ export default function ProductsPage({
 
           </div>
         )}
-
-        {/* ======================= 2. INVENTORY & BRANCHES SUB-TAB ======================= */}
         {activeSegment === "inventory_branches" && (
-          <div className="space-y-12">
-            
-            {/* Top Action Buttons for Inventories & Branches */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/40 p-4 rounded-xl border border-slate-800">
-              <div>
-                <h3 className="text-sm font-black text-white flex items-center gap-1.5 justify-end">
-                  <WarehouseIcon className="w-4 h-4 text-amber-550" style={{ color: theme.accent }} />
-                  <span>لوحة تحكم منافذ التوزيع والجرد المركزي 🏬🏢</span>
-                </h3>
-                <p className="text-[11px] text-gray-400 mt-1">قم بإدارة مستودعات فروع سهم الإدارية وتوزيع حزم المنتجات أو تسجيل فروع ومعارض إضافية</p>
-              </div>
-              {!(user?.role === "كاشير" || user?.role === "موظف خدمة عملاء") && (
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddWarehouseOpen(true)}
-                    className="py-2.5 px-4 rounded-xl text-xs font-black bg-blue-500 hover:bg-blue-400 text-white flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border-none shadow-md shadow-blue-550/10 shrink-0 font-sans"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>+ إضافة مستودع 🏢</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsAddBranchOpen(true)}
-                    className="py-2.5 px-4 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-black flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer border-none shadow-md shadow-emerald-550/10 shrink-0 font-sans"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>+ إضافة فرع 🏬</span>
-                  </button>
-                </div>
-              )}
-            </div>
+          <div className="space-y-6">
 
             {/* Warehouses section */}
-            <div className="space-y-6">
-              <ProductWarehouses
-                products={products}
-                theme={theme}
-                warehouses={hook.warehouses}
-                setWarehouses={hook.setWarehouses}
-                branches={hook.branches}
-                setBranches={hook.setBranches}
-                transfers={hook.transfers}
-                setTransfers={hook.setTransfers}
-                transferForm={hook.transferForm}
-                setTransferForm={hook.setTransferForm}
-                handleStockTransfer={hook.handleStockTransfer}
-                auditScores={hook.auditScores}
-                setAuditScores={hook.setAuditScores}
-                auditDone={hook.auditDone}
-                setAuditDone={hook.setAuditDone}
-                triggerNotification={triggerNotification}
-                addAuditLog={addAuditLog}
-                activeWarehouseId={activeWarehouseId}
-              />
-            </div>
+            {inventorySubTab === "warehouses" && (
+              <div className="space-y-6 animate-fade-in">
+                <ProductWarehouses
+                  products={products}
+                  theme={theme}
+                  warehouses={hook.warehouses}
+                  setWarehouses={hook.setWarehouses}
+                  branches={hook.branches}
+                  setBranches={hook.setBranches}
+                  transfers={hook.transfers}
+                  setTransfers={hook.setTransfers}
+                  transferForm={hook.transferForm}
+                  setTransferForm={hook.setTransferForm}
+                  handleStockTransfer={hook.handleStockTransfer}
+                  auditScores={hook.auditScores}
+                  setAuditScores={hook.setAuditScores}
+                  auditDone={hook.auditDone}
+                  setAuditDone={hook.setAuditDone}
+                  triggerNotification={triggerNotification}
+                  addAuditLog={addAuditLog}
+                  activeWarehouseId={activeWarehouseId}
+                  onAddWarehouse={!(user?.role === "كاشير" || user?.role === "موظف خدمة عملاء") ? () => setIsAddWarehouseOpen(true) : undefined}
+                />
+              </div>
+            )}
 
             {/* Branches section */}
-            <div className="space-y-6 border-t border-slate-800 pt-8" style={{ borderColor: theme.border }}>
-              <ProductBranches
-                products={products}
-                theme={theme}
-                branches={hook.branches}
-                setBranches={hook.setBranches}
-                warehouses={hook.warehouses}
-                setWarehouses={hook.setWarehouses}
-                transfers={hook.transfers}
-                setTransfers={hook.setTransfers}
-                triggerNotification={triggerNotification}
-                addAuditLog={addAuditLog}
-                activeStoreId={activeStoreId}
-              />
-            </div>
+            {inventorySubTab === "branches" && (
+              <div className="space-y-6 animate-fade-in">
+                <ProductBranches
+                  products={products}
+                  theme={theme}
+                  branches={hook.branches}
+                  setBranches={hook.setBranches}
+                  warehouses={hook.warehouses}
+                  setWarehouses={hook.setWarehouses}
+                  transfers={hook.transfers}
+                  setTransfers={hook.setTransfers}
+                  triggerNotification={triggerNotification}
+                  addAuditLog={addAuditLog}
+                  activeStoreId={activeStoreId}
+                  onAddBranch={!(user?.role === "كاشير" || user?.role === "موظف خدمة عملاء") ? () => setIsAddBranchOpen(true) : undefined}
+                />
+              </div>
+            )}
 
           </div>
         )}
-
         {/* ======================= 3. COSTS & PROFITS SUB-TAB ======================= */}
         {activeSegment === "costs_profits" && (
           <ProductProfitPanel
@@ -727,6 +866,8 @@ export default function ProductsPage({
 
       </div>
 
+      </div>
+
       {/* ======================= CREATE NEW CARD DISH VIEW FORM MODAL ======================= */}
       {hook.showNew && (
         <div className="fixed inset-0 bg-black/75 flex justify-center items-center p-4 z-50 animate-fade-in text-right">
@@ -734,7 +875,7 @@ export default function ProductsPage({
             
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
               <div>
-                <h3 className="text-base font-black text-white">إدخل وقيد صنف جديد بالـ ERP 📦</h3>
+                <h3 className="text-base font-black text-white">إدخل وقيد صنف جديد بالـ ERP</h3>
                 <p className="text-xs text-gray-400 mt-0.5">تسجيل الصنف وإدراجه مباشرة لدليل المستودعات لتنشيط مبيعات الكاشير</p>
               </div>
               <button
@@ -1267,6 +1408,140 @@ export default function ProductsPage({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================= DETAILED SAFETY AUDIT POPUP MODAL ======================= */}
+      {showSafetyModal && (
+        <div className="fixed inset-0 bg-black/75 flex justify-center items-center p-4 z-50 animate-fade-in text-right">
+          <div className="w-full max-w-2xl rounded-2xl p-6 shadow-2xl space-y-6 bg-slate-900 border border-slate-800 relative overflow-hidden">
+            {/* Glowing background inside modal */}
+            <div className="absolute -left-16 -top-16 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+            
+            {/* Modal Header */}
+            <div className="flex justify-between items-center pb-4 border-b border-slate-800 relative z-10" style={{ direction: "rtl" }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white font-sans">تفاصيل كفاءة وسلامة المخازن الموحد</h3>
+                  <p className="text-[11px] text-gray-400 mt-0.5 font-sans">تقرير الحالة التشغيلية والبيئية للفروع والمستودعات</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSafetyModal(false)}
+                className="p-1.5 rounded-full hover:bg-slate-800 text-gray-400 cursor-pointer border-none bg-transparent transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="space-y-6 relative z-10 font-sans" style={{ direction: "rtl" }}>
+              
+              {/* Top Row Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                
+                {/* Riyadh Wh */}
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 text-right">
+                  <span className="text-[10px] text-slate-400 font-bold block mb-1">مستودع الرياض الرئيسي</span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xl font-black text-white font-mono">99.2%</span>
+                    <span className="text-[9px] text-emerald-400 font-black">آمن وممتاز</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-2.5 overflow-hidden">
+                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: '99.2%' }} />
+                  </div>
+                </div>
+
+                {/* Jeddah Wh */}
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 text-right">
+                  <span className="text-[10px] text-slate-400 font-bold block mb-1">مستودع جدة اللوجستي</span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xl font-black text-white font-mono">97.5%</span>
+                    <span className="text-[9px] text-emerald-400 font-black">آمن وممتاز</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-2.5 overflow-hidden">
+                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: '97.5%' }} />
+                  </div>
+                </div>
+
+                {/* Dammam Wh */}
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 text-right">
+                  <span className="text-[10px] text-slate-400 font-bold block mb-1">مستودع الدمام الفرعي</span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xl font-black text-white font-mono">98.6%</span>
+                    <span className="text-[9px] text-emerald-400 font-black">آمن وممتاز</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-2.5 overflow-hidden">
+                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: '98.6%' }} />
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Lower Section: 30-Day Activity History & Warnings */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                
+                {/* 30-Day Activity logs */}
+                <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/30 space-y-3">
+                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                    <ClipboardList className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>سجل الفحوصات والأمان (آخر 30 يوماً)</span>
+                  </h4>
+                  <div className="space-y-2.5 pt-1 text-right">
+                    {[
+                      { date: "08 يونيو", desc: "تم الفحص والجرد الدوري الميداني بنجاح كامل بنسبة مطابقة 100%" },
+                      { date: "04 يونيو", desc: "اختبار أنظمة التكييف والتحكم البيئي لحفظ جودة العطور والزيوت" },
+                      { date: "28 مايو", desc: "فحص دوري لأجهزة مكافحة الحرائق والسلامة العامة لجميع الوحدات" }
+                    ].map((item, idx) => (
+                      <div key={idx} className="flex gap-2.5 items-start text-[11px] leading-relaxed">
+                        <span className="text-emerald-400 font-mono font-bold shrink-0">{item.date}</span>
+                        <span className="text-slate-300">{item.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Warning stats & environment parameters */}
+                <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/30 space-y-3">
+                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    <span>إحصائيات البيئة والسلامة الفورية</span>
+                  </h4>
+                  <div className="space-y-2 pt-1 font-mono text-[11px]">
+                    <div className="flex justify-between items-center p-2 rounded bg-slate-900/40">
+                      <span className="font-sans text-slate-400">حالة المنتجات التالفة</span>
+                      <span className="text-emerald-400 font-bold">لا يوجد (0 صنف)</span>
+                    </div>
+                    <div className="flex justify-between items-center p-2 rounded bg-slate-900/40">
+                      <span className="font-sans text-slate-400">السلع الراكدة للتدوير</span>
+                      <span className="text-amber-400 font-bold">3 أصناف تحتاج عروض</span>
+                    </div>
+                    <div className="flex justify-between items-center p-2 rounded bg-slate-900/40">
+                      <span className="font-sans text-slate-400">متوسط الرطوبة والحرارة</span>
+                      <span className="text-white font-bold">22°م / 45% (مثالي)</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex justify-start pt-4 border-t border-slate-800 relative z-10">
+              <button
+                type="button"
+                onClick={() => setShowSafetyModal(false)}
+                className="py-2 px-5 rounded-xl font-bold text-xs cursor-pointer border border-slate-800 text-center text-white bg-slate-950 hover:bg-slate-900 transition-colors"
+              >
+                إغلاق النافذة
+              </button>
+            </div>
+
           </div>
         </div>
       )}

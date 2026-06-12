@@ -1,18 +1,21 @@
-import React, { useState } from "react";
-import { StoreProfile, AddressProfile, StoreBankAccount, StoreDocument, ThemeColors, User } from "../types";
+import React, { useState, useEffect } from "react";
+import { StoreProfile, AddressProfile, StoreBankAccount, StoreDocument, ThemeColors, User, CompanyProfile } from "../types";
+import { CompanyTabPanels } from "./CompanyTabPanels";
+import NationalAddressForm from "./NationalAddressForm";
 import { 
   Store, Plus, Search, Building, CheckCircle, Upload, Trash2, 
   AlertTriangle, CreditCard, Link, MapPin, Phone, Mail, 
   FileText, Check, X, Layers, Users, Sliders, Eye, Archive, 
   RefreshCw, TrendingUp, DollarSign, ShoppingBag, Award, 
-  Globe, ShieldAlert, AlertCircle, FileWarning, Clock
+  Globe, ShieldAlert, AlertCircle, FileWarning, Clock, Video
 } from "lucide-react";
 import { storeService } from "../core/database/storeService";
 import { sahmIconPngUrl, sahmMiniMarkPngUrl } from "../assets/brand/sahm-brand-assets";
+import { CustomIconRenderer } from "../lib/customIcons";
 
 interface StoreManagerProps {
   theme: ThemeColors;
-  stores: StoreProfile[];
+  allowedStores: StoreProfile[];
   setStores: (stores: StoreProfile[]) => void;
   activeStoreId: string;
   setActiveStoreId: (id: string) => void;
@@ -27,11 +30,16 @@ interface StoreManagerProps {
   addAuditLog?: (event: string, text: string) => void;
   onClose?: () => void;
   isInline?: boolean;
+  initialActiveTab?: string;
+  tenantId?: string;
+  rawCompanies?: CompanyProfile[];
+  setRawCompanies?: (comps: CompanyProfile[]) => void;
+  userRole?: string;
 }
 
 export default function StoreManager({
   theme,
-  stores,
+  allowedStores,
   setStores,
   activeStoreId,
   setActiveStoreId,
@@ -45,8 +53,34 @@ export default function StoreManager({
   triggerNotification = () => {},
   addAuditLog = () => {},
   onClose,
-  isInline = false
+  isInline = false,
+  initialActiveTab,
+  tenantId,
+  rawCompanies: propsRawCompanies,
+  setRawCompanies: propsSetRawCompanies,
+  userRole
 }: StoreManagerProps) {
+  const finalTenantId = tenantId;
+  const isLocalMode = import.meta.env.VITE_DATA_MODE !== "supabase";
+  const isPlatformUser = (() => {
+    try {
+      const u = localStorage.getItem("sahm_web_user") || localStorage.getItem("sahm_web_user3");
+      if (u) {
+        const userObj = JSON.parse(u);
+        const PLATFORM_ROLES = ["platform_owner", "system_owner", "system_admin"];
+        return PLATFORM_ROLES.includes(String(userObj.role || "").trim()) || userObj.username === "admin" || userObj.email === "admin@sahm.com";
+      }
+    } catch {}
+    return false;
+  })();
+
+  if (!isPlatformUser) {
+    const isInvalid = isLocalMode ? !finalTenantId : (!finalTenantId || finalTenantId === "tenant-local");
+    if (isInvalid) {
+      throw new Error("Security Error: Invalid or missing tenant_id.");
+    }
+  }
+  const stores = allowedStores;
   const [searchTerm, setSearchTerm] = useState("");
   
   // Overlays / Modals for Hierarchy Management
@@ -55,11 +89,14 @@ export default function StoreManager({
   const [branchFormName, setBranchFormName] = useState("");
   const [branchFormCity, setBranchFormCity] = useState("الرياض");
   const [branchFormAddress, setBranchFormAddress] = useState("");
+  const [branchFormAddressProfile, setBranchFormAddressProfile] = useState<AddressProfile | undefined>(undefined);
   const [branchFormManager, setBranchFormManager] = useState("");
   const [branchFormPhone, setBranchFormPhone] = useState("");
   const [branchFormWh, setBranchFormWh] = useState("");
   const [branchFormType, setBranchFormType] = useState("فرع بيع");
   const [branchFormStatus, setBranchFormStatus] = useState("نشط");
+  const [branchFormCompanyId, setBranchFormCompanyId] = useState("");
+  const [branchFormStoreId, setBranchFormStoreId] = useState("");
 
   const [showPosModal, setShowPosModal] = useState(false);
   const [currentPosBranchId, setCurrentPosBranchId] = useState("");
@@ -75,6 +112,7 @@ export default function StoreManager({
   const [whFormLocation, setWhFormLocation] = useState("");
   const [whFormCapacity, setWhFormCapacity] = useState(3000);
   const [whFormBranch, setWhFormBranch] = useState("");
+  const [whFormCompanyId, setWhFormCompanyId] = useState("");
 
   // Handler functions for new hierarchy items
   const handleSaveBranch = () => {
@@ -82,8 +120,15 @@ export default function StoreManager({
       triggerNotification("يرجى إدخال اسم الفرع! ⚠️", "warning");
       return;
     }
-    const targetStoreId = viewingStore360Id || activeStoreId;
+    if (!branchFormCompanyId) {
+      triggerNotification("يرجى اختيار المنشأة المرتبطة! ⚠️", "warning");
+      return;
+    }
+
     if (editingBranch) {
+      const oldStoreId = editingBranch.storeId || editingBranch.store_id;
+      const newStoreId = branchFormStoreId;
+
       const updated = branches.map(b => b.id === editingBranch.id ? {
         ...b,
         name: branchFormName,
@@ -94,8 +139,46 @@ export default function StoreManager({
         associatedWh: branchFormWh,
         type: branchFormType,
         status: branchFormStatus,
+        companyId: branchFormCompanyId,
+        company_id: branchFormCompanyId,
+        storeId: newStoreId,
+        store_id: newStoreId,
+        addressProfile: branchFormAddressProfile,
       } : b);
       setBranches(updated);
+
+      // Sync stores
+      let updatedStores = [...stores];
+      if (oldStoreId !== newStoreId) {
+        updatedStores = updatedStores.map(st => {
+          if (st.id === oldStoreId) {
+            return {
+              ...st,
+              branches: (st.branches || []).filter((id: string) => id !== editingBranch.id)
+            };
+          }
+          return st;
+        });
+      }
+      updatedStores = updatedStores.map(st => {
+        if (st.id === newStoreId) {
+          const brs = st.branches || [];
+          if (!brs.includes(editingBranch.id)) {
+            return {
+              ...st,
+              branches: [...brs, editingBranch.id]
+            };
+          }
+        }
+        return st;
+      });
+      setStores(updatedStores);
+
+      if (viewingStore360Id === oldStoreId || viewingStore360Id === newStoreId) {
+        const currentViewedStore = updatedStores.find(st => st.id === viewingStore360Id);
+        setSelectedBranches(currentViewedStore?.branches || []);
+      }
+
       triggerNotification(`تم تحديث الفرع [${branchFormName}] بنجاح!`, "success");
     } else {
       const newBId = "br_" + Date.now();
@@ -109,23 +192,41 @@ export default function StoreManager({
         associatedWh: branchFormWh,
         type: branchFormType,
         status: branchFormStatus,
-        storeId: targetStoreId,
-        employees: []
+        companyId: branchFormCompanyId,
+        company_id: branchFormCompanyId,
+        storeId: branchFormStoreId,
+        store_id: branchFormStoreId,
+        employees: [],
+        addressProfile: branchFormAddressProfile,
+        tenantId: finalTenantId,
+        tenant_id: finalTenantId
       };
       setBranches([...branches, newB]);
-      if (viewingStore360Id && !selectedBranches.includes(newBId)) {
-        const updatedSelected = [...selectedBranches, newBId];
-        setSelectedBranches(updatedSelected);
-        const updatedStores = stores.map(st => st.id === viewingStore360Id ? {
-          ...st,
-          branches: updatedSelected
-        } : st);
-        setStores(updatedStores);
+
+      // Add to new store
+      const updatedStores = stores.map(st => {
+        if (st.id === branchFormStoreId) {
+          const brs = st.branches || [];
+          if (!brs.includes(newBId)) {
+            return {
+              ...st,
+              branches: [...brs, newBId]
+            };
+          }
+        }
+        return st;
+      });
+      setStores(updatedStores);
+
+      if (viewingStore360Id === branchFormStoreId) {
+        setSelectedBranches([...selectedBranches, newBId]);
       }
+
       triggerNotification(`تمت إضافة الفرع الجديد [${branchFormName}] بنجاح!`, "success");
     }
     setShowBranchModal(false);
     setEditingBranch(null);
+    setBranchFormAddressProfile(undefined);
   };
 
   const handleSavePos = () => {
@@ -138,16 +239,21 @@ export default function StoreManager({
       triggerNotification("عذراً، يجب ربط نقطة البيع بفرع نشط! ⚠️", "warning");
       return;
     }
+    const storeIdVal = (activeStoreId && activeStoreId !== "all_stores") ? activeStoreId : (stores[0]?.id || "store_1");
     const newPosId = "pos_" + Date.now();
     const newPos = {
       id: newPosId,
       name: posFormName,
       branchId: targetBranchId,
+      storeId: storeIdVal,
+      store_id: storeIdVal,
       cashier: posFormCashier || "موظف مالي متاح",
       defaultWh: posFormWh,
       paymentMethods: posFormPayMethods,
       status: posFormStatus || "نشط",
-      isDefault: posUnits.filter((p: any) => p.branchId === targetBranchId).length === 0
+      isDefault: posUnits.filter((p: any) => p.branchId === targetBranchId).length === 0,
+      tenantId: finalTenantId,
+      tenant_id: finalTenantId
     };
     setPosUnits([...posUnits, newPos]);
     triggerNotification(`تمت إضافة نقطة البيع [${posFormName}] بنجاح!`, "success");
@@ -162,6 +268,11 @@ export default function StoreManager({
       triggerNotification("يرجى إدخال اسم المستودع! ⚠️", "warning");
       return;
     }
+    if (!whFormCompanyId) {
+      triggerNotification("يرجى اختيار المنشأة المرتبطة بالمستودع! ⚠️", "warning");
+      return;
+    }
+    const storeIdVal = (activeStoreId && activeStoreId !== "all_stores") ? activeStoreId : (stores[0]?.id || "store_1");
     const newWhId = "wh_" + Date.now();
     const newWh = {
       id: newWhId,
@@ -171,7 +282,13 @@ export default function StoreManager({
       capacity: whFormCapacity || 3000,
       associatedBranch: whFormBranch,
       manager: "مسؤول اللوجستيات",
-      items: []
+      companyId: whFormCompanyId,
+      company_id: whFormCompanyId,
+      storeId: storeIdVal,
+      store_id: storeIdVal,
+      items: [],
+      tenantId: finalTenantId,
+      tenant_id: finalTenantId
     };
     setWarehouses([...warehouses, newWh]);
     
@@ -209,6 +326,9 @@ export default function StoreManager({
     setBranchFormWh(b.associatedWh || "");
     setBranchFormType(b.type || "فرع بيع");
     setBranchFormStatus(b.status || "نشط");
+    setBranchFormCompanyId(b.companyId || b.company_id || "");
+    setBranchFormStoreId(b.storeId || b.store_id || "");
+    setBranchFormAddressProfile(b.addressProfile || undefined);
     setShowBranchModal(true);
   };
 
@@ -237,7 +357,247 @@ export default function StoreManager({
   const [viewingStore360Id, setViewingStore360Id] = useState<string | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [activeFormTab, setActiveFormTab] = useState<"general" | "legal" | "contact" | "address" | "bank" | "docs" | "platforms" | "relations">("general");
-  const [store360ActiveTab, setStore360ActiveTab] = useState<"overview" | "legal_docs" | "relations" | "platforms" | "performance" | "edit">("overview");
+  const [store360ActiveTab, setStore360ActiveTab] = useState<"overview" | "legal_docs" | "relations" | "platforms" | "performance" | "edit" | "cameras">("overview");
+
+  // Branch Camera States for premium feature demo/sim
+  const [storeCameras, setStoreCameras] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem("sahm_branch_cameras");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [cameraSelectedBranchId, setCameraSelectedBranchId] = useState("");
+  const [editingCameraId, setEditingCameraId] = useState<string | null>(null);
+  const [cameraFormName, setCameraFormName] = useState("");
+  const [cameraFormUrl, setCameraFormUrl] = useState("");
+
+  // Top-level View Tab State
+  const [mainActiveTab, setMainActiveTab] = useState<"overview" | "companies" | "stores" | "branches" | "warehouses" | "connections">("overview");
+
+  useEffect(() => {
+    if (initialActiveTab && ["overview", "companies", "stores", "branches", "warehouses", "connections"].includes(initialActiveTab)) {
+      setMainActiveTab(initialActiveTab as any);
+    }
+  }, [initialActiveTab]);
+
+  // Company management states (isolated per tenant_id)
+  const [localRawCompanies, setLocalRawCompanies] = useState<CompanyProfile[]>(() => {
+    try {
+      const saved = localStorage.getItem("sahm_web_companies");
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {}
+    
+    // Seed initial default company
+    const defaultCompany: CompanyProfile = {
+      id: "comp-default",
+      name: "مجموعة سهم القابضة للخدمات اللوجستية",
+      companyLegalName: "شركة سهم القابضة للخدمات اللوجستية ش.م.م",
+      crNumber: "1010411223",
+      crDate: "1440-02-15",
+      crExpiryDate: "1450-02-15",
+      vatNumber: "302213456700003",
+      unifiedNumber700: "7001452637",
+      address: "المملكة العربية السعودية، الرياض، حي السلي، شارع الإسطنبول، المبنى الإضافي 3",
+      managerName: "عبد الرحمن بن فهد السجيني",
+      phone: "920011400",
+      email: "info@sahm.group",
+      bankAccount: "SA80000001010345678901",
+      status: "active",
+      subscriptionPlan: "باقة سهم البلاتينية 👑",
+      logoUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=120&auto=format&fit=crop",
+      coverUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop",
+      createdAt: "2024-01-01",
+      tenant_id: finalTenantId
+    };
+    try {
+      localStorage.setItem("sahm_web_companies", JSON.stringify([defaultCompany]));
+    } catch {}
+    return [defaultCompany];
+  });
+
+  const rawCompanies = propsRawCompanies !== undefined ? propsRawCompanies : localRawCompanies;
+  const setRawCompanies = propsSetRawCompanies !== undefined ? propsSetRawCompanies : setLocalRawCompanies;
+
+  const companies = rawCompanies.filter(item => {
+    const itemTenant = item.tenant_id;
+    if (!isPlatformUser) {
+      const isInvalid = isLocalMode ? !itemTenant : (!itemTenant || itemTenant === "tenant-local");
+      if (isInvalid) {
+        throw new Error("Security Error: Invalid or missing tenant_id.");
+      }
+    }
+    return (isPlatformUser && !finalTenantId) ? true : (itemTenant === finalTenantId);
+  });
+
+  const saveCompaniesToStorage = (comps: CompanyProfile[]) => {
+    const otherTenants = rawCompanies.filter(item => {
+      const itemTenant = item.tenant_id;
+      if (!isPlatformUser) {
+        const isInvalid = isLocalMode ? !itemTenant : (!itemTenant || itemTenant === "tenant-local");
+        if (isInvalid) {
+          throw new Error("Security Error: Invalid or missing tenant_id.");
+        }
+      }
+      return (isPlatformUser && !finalTenantId) ? false : (itemTenant !== finalTenantId);
+    });
+    const updated = comps.map(item => ({ ...item, tenant_id: finalTenantId || "tenant-local" }));
+    const finalVal = (isPlatformUser && !finalTenantId) ? comps : [...otherTenants, ...updated];
+    setRawCompanies(finalVal);
+    try {
+      localStorage.setItem("sahm_web_companies", JSON.stringify(finalVal));
+    } catch (e) {}
+  };
+
+  const [viewingCompany360Id, setViewingCompany360Id] = useState<string | null>(null);
+  const [isCreatingCompany, setIsCreatingCompany] = useState(false);
+  const [company360ActiveTab, setCompany360ActiveTab] = useState<"overview" | "legal" | "stores" | "branches" | "warehouses" | "users" | "docs" | "timeline">("overview");
+
+  // Company Form States
+  const [compFormName, setCompFormName] = useState("");
+  const [compFormLegalName, setCompFormLegalName] = useState("");
+  const [compFormCrNumber, setCompFormCrNumber] = useState("");
+  const [compFormCrDate, setCompFormCrDate] = useState("");
+  const [compFormCrExpiryDate, setCompFormCrExpiryDate] = useState("");
+  const [compFormVatNumber, setCompFormVatNumber] = useState("");
+  const [compFormUnified700, setCompFormUnified700] = useState("");
+  const [compFormAddress, setCompFormAddress] = useState("");
+  const [compFormManager, setCompFormManager] = useState("");
+  const [compFormPhone, setCompFormPhone] = useState("");
+  const [compFormEmail, setCompFormEmail] = useState("");
+  const [compFormBankAccount, setCompFormBankAccount] = useState("");
+  const [compFormStatus, setCompFormStatus] = useState<"active" | "suspended" | "draft">("active");
+  const [compFormSubscription, setCompFormSubscription] = useState("الباقة الاحترافية الذهبية");
+  const [compFormLogo, setCompFormLogo] = useState("");
+  const [compFormCover, setCompFormCover] = useState("");
+  const [compFormInvoiceLogo, setCompFormInvoiceLogo] = useState("");
+  const [compFormStamp, setCompFormStamp] = useState("");
+
+  const handleOpenCreateCompany = () => {
+    setCompFormName("");
+    setCompFormLegalName("");
+    setCompFormCrNumber("");
+    setCompFormCrDate("");
+    setCompFormCrExpiryDate("");
+    setCompFormVatNumber("");
+    setCompFormUnified700("");
+    setCompFormAddress("");
+    setCompFormManager("");
+    setCompFormPhone("");
+    setCompFormEmail("");
+    setCompFormBankAccount("");
+    setCompFormStatus("active");
+    setCompFormSubscription("الباقة الاحترافية الذهبية");
+    setCompFormLogo("");
+    setCompFormCover("");
+    setCompFormInvoiceLogo("");
+    setCompFormStamp("");
+    
+    setIsCreatingCompany(true);
+    setViewingCompany360Id(null);
+  };
+
+  const handleEditCompany = (c: CompanyProfile) => {
+    setCompFormName(c.name);
+    setCompFormLegalName(c.companyLegalName);
+    setCompFormCrNumber(c.crNumber);
+    setCompFormCrDate(c.crDate);
+    setCompFormCrExpiryDate(c.crExpiryDate);
+    setCompFormVatNumber(c.vatNumber || "");
+    setCompFormUnified700(c.unifiedNumber700 || "");
+    setCompFormAddress(c.address || "");
+    setCompFormManager(c.managerName || "");
+    setCompFormPhone(c.phone || "");
+    setCompFormEmail(c.email || "");
+    setCompFormBankAccount(c.bankAccount || "");
+    setCompFormStatus(c.status);
+    setCompFormSubscription(c.subscriptionPlan || "الباقة الاحترافية الذهبية");
+    setCompFormLogo(c.logoUrl || "");
+    setCompFormCover(c.coverUrl || "");
+    setCompFormInvoiceLogo((c as any).invoiceLogoUrl || "");
+    setCompFormStamp((c as any).stampUrl || "");
+    
+    setIsCreatingCompany(true);
+    setViewingCompany360Id(c.id);
+    setCompany360ActiveTab("overview"); // reset tab back to overview so when they return it's on overview tab
+  };
+
+  const handleSaveCompany = () => {
+    if (!compFormName.trim()) {
+      triggerNotification("يرجى إدخال اسم المنشأة! ⚠️", "warning");
+      return;
+    }
+    if (!compFormCrNumber.trim()) {
+      triggerNotification("يرجى إدخال السجل التجاري الرسمي! ⚠️", "warning");
+      return;
+    }
+
+    if (viewingCompany360Id) {
+      const updated = companies.map(c => {
+        if (c.id === viewingCompany360Id) {
+          return {
+            ...c,
+            name: compFormName,
+            companyLegalName: compFormLegalName,
+            crNumber: compFormCrNumber,
+            crDate: compFormCrDate,
+            crExpiryDate: compFormCrExpiryDate,
+            vatNumber: compFormVatNumber,
+            unifiedNumber700: compFormUnified700,
+            address: compFormAddress,
+            managerName: compFormManager,
+            phone: compFormPhone,
+            email: compFormEmail,
+            bankAccount: compFormBankAccount,
+            status: compFormStatus,
+            subscriptionPlan: compFormSubscription,
+            logoUrl: compFormLogo,
+            coverUrl: compFormCover,
+            invoiceLogoUrl: compFormInvoiceLogo,
+            stampUrl: compFormStamp
+          } as any;
+        }
+        return c;
+      });
+      saveCompaniesToStorage(updated);
+      triggerNotification(`تم تحديث بيانات منشأة [${compFormName}] بنجاح!`, "success");
+      setIsCreatingCompany(false);
+    } else {
+      const newCompId = "comp_" + Date.now();
+      const newComp: CompanyProfile = {
+        id: newCompId,
+        name: compFormName,
+        companyLegalName: compFormLegalName || compFormName,
+        crNumber: compFormCrNumber,
+        crDate: compFormCrDate || "١٤٤٥-٠١-٠١",
+        crExpiryDate: compFormCrExpiryDate || "١٤٥٠-٠١-٠١",
+        vatNumber: compFormVatNumber,
+        unifiedNumber700: compFormUnified700,
+        address: compFormAddress,
+        managerName: compFormManager,
+        phone: compFormPhone,
+        email: compFormEmail,
+        bankAccount: compFormBankAccount,
+        status: compFormStatus,
+        subscriptionPlan: compFormSubscription,
+        logoUrl: compFormLogo || "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=120&auto=format&fit=crop",
+        coverUrl: compFormCover || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop",
+        invoiceLogoUrl: compFormInvoiceLogo,
+        stampUrl: compFormStamp,
+        createdAt: new Date().toISOString().split("T")[0]
+      } as any;
+      const updated = [...companies, newComp];
+      saveCompaniesToStorage(updated);
+      triggerNotification(`تم تسجيل وتأسيس المنشأة [${compFormName}] بنجاح! 🏢✨`, "success");
+      setIsCreatingCompany(false);
+      setViewingCompany360Id(newCompId);
+      setCompany360ActiveTab("overview");
+    }
+  };
+
+  const [formCompanyId, setFormCompanyId] = useState("company_1");
 
   const [storesFilter, setStoresFilter] = useState<"active" | "archived">("active");
   const [storeToDelete, setStoreToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -330,6 +690,43 @@ export default function StoreManager({
   const [uploadedCover, setUploadedCover] = useState("");
   const [uploadedInvoiceLogo, setUploadedInvoiceLogo] = useState("");
   const [uploadedStamp, setUploadedStamp] = useState("");
+
+  // Quick direct image edit overlay states
+  const [quickImageStoreObj, setQuickImageStoreObj] = useState<any | null>(null);
+  const [quickImageField, setQuickImageField] = useState<"logoUrl" | "coverUrl" | null>(null);
+  const [quickImageValue, setQuickImageValue] = useState("");
+  const [quickImageUploadBase64, setQuickImageUploadBase64] = useState("");
+
+  const handleTriggerQuickImageUpdate = (stObj: any, field: "logoUrl" | "coverUrl") => {
+    setQuickImageStoreObj(stObj);
+    setQuickImageField(field);
+    setQuickImageValue(stObj[field] || "");
+    setQuickImageUploadBase64("");
+  };
+
+  const handleSaveQuickImageUpdate = () => {
+    if (!quickImageStoreObj || !quickImageField) return;
+    const finalVal = quickImageUploadBase64 || quickImageValue.trim();
+    
+    // Update the store in memory & database list
+    const targetStore = stores.find(s => s.id === quickImageStoreObj.id);
+    if (targetStore) {
+      targetStore[quickImageField] = finalVal;
+      // If we currently view or selected this store, sync standard form states too
+      if (targetStore.id === activeStoreId) {
+        if (quickImageField === "logoUrl") setUploadedLogo(finalVal);
+        if (quickImageField === "coverUrl") setUploadedCover(finalVal);
+      }
+      
+      // Save
+      storeService.create(targetStore);
+      triggerNotification(`تم تحديث ${quickImageField === "logoUrl" ? "شعار" : "غلاف"} المتجر بنجاح ✓`, "success");
+    }
+    
+    setQuickImageStoreObj(null);
+    setQuickImageField(null);
+    setQuickImageUploadBase64("");
+  };
 
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
 
@@ -581,6 +978,7 @@ export default function StoreManager({
     setActiveFormTab("general");
     
     // Fill states
+    setFormCompanyId(s.companyId || "company_1");
     setFormName(s.name);
     setFormTradeName(s.tradeName);
     setFormCompanyLegalName(s.companyLegalName);
@@ -734,7 +1132,8 @@ export default function StoreManager({
       const newSid = "store_" + Date.now();
       const newStore: StoreProfile & { company_id: string; store_id: string; amazonConnected?: boolean; noonConnected?: boolean } = {
         id: newSid,
-        company_id: "company_1",
+        company_id: formCompanyId,
+        companyId: formCompanyId,
         store_id: newSid,
         name: formName,
         tradeName: formTradeName || formName,
@@ -784,7 +1183,8 @@ export default function StoreManager({
         if (st.id === viewingStore360Id) {
           return {
             ...st,
-            company_id: "company_1",
+            company_id: formCompanyId,
+            companyId: formCompanyId,
             store_id: st.id,
             name: formName,
             tradeName: formTradeName,
@@ -910,17 +1310,27 @@ export default function StoreManager({
   };
 
   const simulateImageUpload = (type: "logo" | "cover" | "invoice" | "stamp") => {
-    const images = {
-      logo: "https://images.unsplash.com/photo-1541167760496-1628856ab772?auto=format&fit=crop&w=150&q=80",
-      cover: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?auto=format&fit=crop&w=800&q=80",
-      invoice: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=150&q=80",
-      stamp: "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=150&q=80"
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*,application/pdf";
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            const base64 = event.target.result as string;
+            if (type === "logo") setUploadedLogo(base64);
+            if (type === "cover") setUploadedCover(base64);
+            if (type === "invoice") setUploadedInvoiceLogo(base64);
+            if (type === "stamp") setUploadedStamp(base64);
+            triggerNotification("📸 تم رفع وحفظ الملف بنجاح!", "success");
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     };
-    if (type === "logo") setUploadedLogo(images.logo);
-    if (type === "cover") setUploadedCover(images.cover);
-    if (type === "invoice") setUploadedInvoiceLogo(images.invoice);
-    if (type === "stamp") setUploadedStamp(images.stamp);
-    triggerNotification("📸 تم الرفع والتحليل والمطابقة بذكاء الـ OCR التمكيني!", "success");
+    input.click();
   };
 
   // Filters
@@ -962,7 +1372,7 @@ export default function StoreManager({
           {onClose && (
             <button 
               onClick={onClose}
-              className="p-2.5 rounded-full hover:bg-slate-800 text-gray-400 hover:text-white transition-all cursor-pointer border-0"
+              className="p-2.5 rounded-full hover:bg-slate-800 text-gray-450 hover:text-white transition-all cursor-pointer border-0"
             >
               <X className="w-5 h-5" />
             </button>
@@ -983,215 +1393,139 @@ export default function StoreManager({
               <span className="bg-amber-400 text-black text-[9px] font-black px-2 py-1 rounded-md shrink-0 uppercase tracking-widest font-mono">وضع العرض فقط</span>
             </div>
           )}
-          
-          {/* 1. STORES INDEX GRID (WHEN NOTHING ACTIVE) */}
-          {!viewingStore360Id && !isCreatingNew && (
-            <div className="space-y-6">
-              
-              {/* Top Controls */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/40 p-4 rounded-2xl border border-slate-800/80">
-                <div className="relative w-full sm:w-80">
-                  <span className="absolute right-3.5 top-3 text-gray-500">
-                    <Search className="w-4 h-4" />
-                  </span>
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="بحث باسم المتجر، السجل الضريبي أو التجاري..."
-                    className="w-full text-xs rounded-xl py-2.5 pr-10 pl-3.5 bg-slate-950 border border-slate-850 text-white outline-none focus:border-amber-500 text-right font-medium"
-                  />
-                </div>
-                <button
-                  onClick={handleOpenCreateNew}
-                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 py-2.5 px-5 rounded-xl text-xs font-black bg-amber-500 text-black hover:bg-amber-400 transition-all cursor-pointer border-none"
-                >
-                  <Plus className="w-4 h-4 stroke-[3px]" />
-                  <span>تأسيس متجر مؤسسي مرخص 🚀</span>
-                </button>
-              </div>
 
-              {/* Bento Quick statistics */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800/60 text-right">
-                  <span className="text-[10px] text-gray-400 font-extrabold block uppercase">عدد المتاجر التابعة:</span>
-                  <span className="text-xl font-black text-amber-500 block mt-1">{stores.length} جهات مميزة</span>
-                  <p className="text-[9px] text-gray-500 leading-normal mt-1">تدار وتوزع مالياً تحت خادم دقة ERP.</p>
-                </div>
-                <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800/60 text-right">
-                  <span className="text-[10px] text-gray-400 font-extrabold block uppercase">قنوات الربط النشطة E-Com:</span>
-                  <span className="text-xl font-black text-emerald-400 block mt-1">
-                    {stores.filter(s => s.platforms?.salla?.isConnected || s.platforms?.zid?.isConnected || s.platforms?.shopify?.isConnected || s.platforms?.wooCommerce?.isConnected).length} بوابات حية
-                  </span>
-                  <p className="text-[9px] text-gray-500 leading-normal mt-1">مزامنة المخازن والطلبيات الموحدة.</p>
-                </div>
-                <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800/60 text-right">
-                  <span className="text-[10px] text-gray-400 font-extrabold block uppercase">اللوجستيات ومراكز السحب:</span>
-                  <span className="text-xl font-black text-indigo-400 block mt-1">
-                    {branches.length} فروع | {warehouses.length} مخازن
-                  </span>
-                  <p className="text-[9px] text-gray-500 leading-normal mt-1">خرائط ومستودعات جرد مغذية فاعلة.</p>
-                </div>
-                <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800/60 text-right">
-                  <span className="text-[10px] text-gray-400 font-extrabold block uppercase">منهجية الأمن والهيكل:</span>
-                  <span className="text-sm font-black text-amber-400/90 block mt-1 flex items-center gap-1 justify-end font-mono">
-                    <Check className="w-3.5 h-3.5 text-emerald-400" /> MULTI-TENANT READY
-                  </span>
-                  <p className="text-[9px] text-gray-500 leading-normal mt-1">تقسيم السجلات عبر (company, store, branch).</p>
-                </div>
-              </div>
-
-              {/* Stores Ledger Grid */}
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b pb-3 gap-3" style={{ borderColor: theme.border }}>
-                  <h3 className="text-xs font-black text-white/90 flex items-center gap-1.5 pt-1">
-                    <Building className="w-4 h-4 text-amber-400" />
-                    <span>{storesFilter === "active" ? "المتاجر المعتمدة الحية النشطة" : "أرشيف المتاجر المؤرشفة والمنشآت التاريخية"} ({filtered.length}):</span>
-                  </h3>
-                  
-                  <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border" style={{ borderColor: theme.border }}>
-                    <button
-                      type="button"
-                      onClick={() => setStoresFilter("active")}
-                      className={`px-3 py-1.5 rounded-lg text-[10.5px] font-black transition-all cursor-pointer border-0 ${
-                        storesFilter === "active" 
-                          ? "bg-amber-500 text-black shadow-sm font-sans font-extrabold" 
-                          : "text-gray-450 hover:text-white bg-transparent font-sans"
-                      }`}
-                    >
-                      🟢 المتاجر النشطة ({stores.filter(s => !s.isArchived).length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStoresFilter("archived")}
-                      className={`px-3 py-1.5 rounded-lg text-[10.5px] font-black transition-all cursor-pointer border-0 ${
-                        storesFilter === "archived" 
-                          ? "bg-amber-500 text-black shadow-sm font-sans font-extrabold" 
-                          : "text-gray-450 hover:text-white bg-transparent font-sans"
-                      }`}
-                    >
-                      🗃️ المتاجر المؤرشفة ({stores.filter(s => !!s.isArchived).length})
-                    </button>
-                  </div>
-                </div>
-
-                {filtered.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic text-center p-8 bg-slate-950/20 rounded-2xl border border-dashed border-slate-800">لم يتم العثور على أي متجر يطابق معايير البحث.</p>
-                ) : (
-                  <div className="grid grid-cols-1 gap-4">
-                    {filtered.map(st => {
-                      const isActive = st.isActive !== false;
-                      const hasPlatforms = Object.values(st.platforms || {}).some(p => (p as any).isConnected);
-                      return (
-                        <div 
-                          key={st.id}
-                          className={`p-5 rounded-2xl border transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-5 cursor-pointer hover:border-amber-500/50 ${
-                            st.id === activeStoreId 
-                              ? "bg-amber-500/[0.04] border-amber-500/50" 
-                              : "bg-slate-900/30 border-slate-800/60"
-                          }`}
-                          onClick={() => handleActiveStoreSwitch(st.id, st.name)}
-                        >
-                          <div className="flex items-start gap-4">
-                            <div className="w-14 h-14 rounded-xl bg-slate-950 border border-slate-850 flex items-center justify-center font-bold text-white shadow-inner shrink-0 overflow-hidden text-sm uppercase">
-                              {st.logoUrl ? (
-                                <img src={st.logoUrl} alt={st.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                              ) : (
-                                st.name.substring(0, 2)
-                              )}
-                            </div>
-                            
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h4 className="text-[13.5px] font-black text-white font-sans">{st.name}</h4>
-                                {st.isDefault && (
-                                  <span className="text-[8.5px] font-extrabold px-1.5 py-0.5 bg-amber-500 text-black rounded">
-                                    👑 الافتراضي الرئيسي
-                                  </span>
-                                )}
-                                {st.isArchived && (
-                                  <span className="text-[8.5px] font-bold px-1.5 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded">
-                                    مؤرشف 🗃️
-                                  </span>
-                                )}
-                                <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded ${isActive ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
-                                  {isActive ? "مفعّل" : "مجمّد"}
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-gray-400">{st.tradeName} | تسجيل وطني: {st.crNumber}</p>
-                              
-                              <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[10px] text-gray-500 pt-1.5 font-sans">
-                                <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> الرقم الضريبي: {st.vatNumber || "غير محدد"}</span>
-                                <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-amber-500" /> {st.address?.shortAddress ? `سبل: ${st.address.shortAddress}` : "بانتظار العنوان الوطني"}</span>
-                                <span className="flex items-center gap-1"><Layers className="w-3.5 h-3.5 text-sky-400" /> {st.branches?.length || 0} فروع | {st.warehouses?.length || 0} مستودعات</span>
-                                {hasPlatforms && (
-                                  <span className="flex items-center gap-1 text-emerald-500 font-extrabold">● مزامنة القنوات جاهزة</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2" onClick={e => e.stopPropagation()}>
-                            <button
-                              onClick={() => handleOpenEdit(st)}
-                              className="py-2 px-3 focus:outline-none rounded-xl text-xs font-black bg-slate-950 border border-slate-800 text-amber-500 hover:text-amber-400 transition-all flex items-center gap-1 cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>بيان المتجر 360 Full Profile ⚙️</span>
-                            </button>
-                            
-                            <button
-                              onClick={() => handleToggleActive(st.id, isActive)}
-                              className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                                isActive ? "bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
-                              }`}
-                            >
-                              {isActive ? "تعطيل" : "تنشيط"}
-                            </button>
-
-                            {st.isArchived ? (
-                              <button
-                                onClick={() => handleRestoreStore(st.id, st.name)}
-                                className="py-2 px-2.5 rounded-xl text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 cursor-pointer"
-                              >
-                                استعادة 📤
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleToggleArchive(st.id, false)}
-                                className="py-2 px-2.5 rounded-xl text-xs font-semibold bg-slate-950 hover:bg-slate-900 text-purple-400 border border-slate-850 cursor-pointer"
-                              >
-                                أرشفة
-                              </button>
-                            )}
-
-                            {!st.isDefault && (
-                              <button
-                                onClick={() => handleSetDefault(st.id)}
-                                className="py-2 px-2.5 rounded-xl text-xs font-extrabold bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500/20 cursor-pointer"
-                              >
-                                افتراضي الرئيسي 👑
-                              </button>
-                            )}
-
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteStore(st.id, st.name);
-                              }}
-                              className="p-2 rounded-xl text-red-500 hover:text-white hover:bg-red-500/20 cursor-pointer border-0"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+          {/* Top Main Navigation Tabs */}
+          {!isInline && !viewingStore360Id && !isCreatingNew && !viewingCompany360Id && !isCreatingCompany && (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-950/80 rounded-2xl border border-slate-850 shadow-md" dir="rtl">
+                {[
+                  { id: "overview", label: "نظرة عامة 📊" },
+                  { id: "companies", label: "المنشآت والشركات 🏢" },
+                  { id: "branches", label: "الفروع والمواقع 📍" },
+                  { id: "warehouses", label: "المستودعات 📦" },
+                  { id: "stores", label: "المتاجر التابعة 🏬" },
+                  { id: "connections", label: "الربط والعلاقات 🔗" }
+                ].map(tb => (
+                  <button
+                    key={tb.id}
+                    onClick={() => setMainActiveTab(tb.id as any)}
+                    className={`py-2 px-4 rounded-xl text-xs font-black transition-all border-none font-sans cursor-pointer whitespace-nowrap ${
+                      mainActiveTab === tb.id 
+                        ? "bg-amber-500 text-black shadow-lg font-extrabold scale-102" 
+                        : "text-gray-450 hover:text-white hover:bg-slate-900"
+                    }`}
+                  >
+                    {tb.label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
+
+          {/* Unified Multi-tenant Panels Segment */}
+          {(!viewingStore360Id && !isCreatingNew) ? (
+            <CompanyTabPanels
+              userRole={userRole}
+              mainActiveTab={mainActiveTab}
+              setMainActiveTab={setMainActiveTab}
+              companies={companies}
+              stores={allowedStores}
+              setStores={setStores}
+              branches={branches}
+              warehouses={warehouses}
+              users={users}
+              theme={theme}
+              searchTerm={searchTerm}
+              setSearchTerm={setSearchTerm}
+              storesFilter={storesFilter}
+              setStoresFilter={setStoresFilter}
+              filteredStores={filtered}
+              handleOpenCreateCompany={handleOpenCreateCompany}
+              handleOpenCreateNew={handleOpenCreateNew}
+              handleOpenEdit={handleOpenEdit}
+              handleToggleActive={handleToggleActive}
+              handleToggleArchive={handleToggleArchive}
+              handleRestoreStore={handleRestoreStore}
+              handleSetDefault={handleSetDefault}
+              handleDeleteStore={handleDeleteStore}
+              activeStoreId={activeStoreId}
+              setActiveStoreId={setActiveStoreId}
+              
+              // Company State
+              viewingCompany360Id={viewingCompany360Id}
+              setViewingCompany360Id={setViewingCompany360Id}
+              isCreatingCompany={isCreatingCompany}
+              setIsCreatingCompany={setIsCreatingCompany}
+              company360ActiveTab={company360ActiveTab}
+              setCompany360ActiveTab={setCompany360ActiveTab}
+              handleSaveCompany={handleSaveCompany}
+              handleEditCompany={handleEditCompany}
+
+              // Company Inputs
+              compFormName={compFormName}
+              setCompFormName={setCompFormName}
+              compFormLegalName={compFormLegalName}
+              setCompFormLegalName={setCompFormLegalName}
+              compFormCrNumber={compFormCrNumber}
+              setCompFormCrNumber={setCompFormCrNumber}
+              compFormCrDate={compFormCrDate}
+              setCompFormCrDate={setCompFormCrDate}
+              compFormCrExpiryDate={compFormCrExpiryDate}
+              setCompFormCrExpiryDate={setCompFormCrExpiryDate}
+              compFormVatNumber={compFormVatNumber}
+              setCompFormVatNumber={setCompFormVatNumber}
+              compFormUnified700={compFormUnified700}
+              setCompFormUnified700={setCompFormUnified700}
+              compFormAddress={compFormAddress}
+              setCompFormAddress={setCompFormAddress}
+              compFormManager={compFormManager}
+              setCompFormManager={setCompFormManager}
+              compFormPhone={compFormPhone}
+              setCompFormPhone={setCompFormPhone}
+              compFormEmail={compFormEmail}
+              setCompFormEmail={setCompFormEmail}
+              compFormBankAccount={compFormBankAccount}
+              setCompFormBankAccount={setCompFormBankAccount}
+              compFormStatus={compFormStatus}
+              setCompFormStatus={setCompFormStatus}
+              compFormSubscription={compFormSubscription}
+              setCompFormSubscription={setCompFormSubscription}
+              compFormLogo={compFormLogo}
+              setCompFormLogo={setCompFormLogo}
+              compFormCover={compFormCover}
+              setCompFormCover={setCompFormCover}
+              compFormInvoiceLogo={compFormInvoiceLogo}
+              setCompFormInvoiceLogo={setCompFormInvoiceLogo}
+              compFormStamp={compFormStamp}
+              setCompFormStamp={setCompFormStamp}
+
+              // Modals
+              setShowBranchModal={setShowBranchModal}
+              setEditingBranch={setEditingBranch}
+              setBranchFormName={setBranchFormName}
+              setBranchFormCity={setBranchFormCity}
+              setBranchFormAddress={setBranchFormAddress}
+              setBranchFormManager={setBranchFormManager}
+              setBranchFormPhone={setBranchFormPhone}
+              setBranchFormWh={setBranchFormWh}
+              setBranchFormType={setBranchFormType}
+              setBranchFormStatus={setBranchFormStatus}
+              branchFormCompanyId={branchFormCompanyId}
+              setBranchFormCompanyId={setBranchFormCompanyId}
+              branchFormStoreId={branchFormStoreId}
+              setBranchFormStoreId={setBranchFormStoreId}
+              setBranchFormAddressProfile={setBranchFormAddressProfile}
+
+              setShowWhModal={setShowWhModal}
+              setWhFormName={setWhFormName}
+              setWhFormType={setWhFormType}
+              setWhFormLocation={setWhFormLocation}
+              setWhFormCapacity={setWhFormCapacity}
+              setWhFormBranch={setWhFormBranch}
+              whFormCompanyId={whFormCompanyId}
+              setWhFormCompanyId={setWhFormCompanyId}
+            />
+          ) : null}
 
           {/* 2. THE GRAND STORE 360 UNIFIED PORTAL (WHEN VIEWING STORE PROFILE) */}
           {viewingStore360Id && currentStoreObjOn360 && (
@@ -1200,9 +1534,20 @@ export default function StoreManager({
               {/* Cover card */}
               <div className="relative rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden shadow-xl">
                 <div className="h-28 md:h-36 bg-gradient-to-r from-amber-600/30 to-[#0e1626] relative flex items-center justify-between p-6">
-                  {currentStoreObjOn360.coverUrl && (
-                    <img src={currentStoreObjOn360.coverUrl} alt="Cover" className="absolute inset-0 w-full h-full object-cover opacity-25" referrerPolicy="no-referrer" />
-                  )}
+                  <div 
+                    onClick={() => handleTriggerQuickImageUpdate(currentStoreObjOn360, "coverUrl")}
+                    title="انقر لتعديل غلاف المتجر فوراً 📷"
+                    className="absolute inset-0 w-full h-full cursor-pointer group/cover overflow-hidden"
+                  >
+                    {currentStoreObjOn360.coverUrl ? (
+                      <img src={currentStoreObjOn360.coverUrl} alt="Cover" className="w-full h-full object-cover opacity-25 group-hover/cover:scale-105 transition-all" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full bg-slate-950 opacity-25" />
+                    )}
+                    <div className="absolute inset-x-0 bottom-2 flex justify-center opacity-0 group-hover/cover:opacity-100 transition-opacity z-20">
+                      <span className="bg-black/90 text-[#D4AF37] border border-[#D4AF37]/30 text-[9px] font-black px-2.5 py-1 rounded-lg">تغيير صورة الغلاف 📷</span>
+                    </div>
+                  </div>
                   {/* Quick toggle list button */}
                   <div className="z-10 bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-right">
                     <span className="text-[9.5px] text-amber-500 font-extrabold block">قناة المتجر الحالية:</span>
@@ -1230,8 +1575,15 @@ export default function StoreManager({
                 {/* Identity profile metadata line */}
                 <div className="p-4 md:p-5 bg-[#0e1525] border-t border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-14 h-14 rounded-2xl bg-slate-950 border-2 border-slate-800 shadow-lg -mt-10 overflow-hidden shrink-0 z-10">
-                      <img src={currentStoreObjOn360.logoUrl || "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=120&auto=format&fit=crop"} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <div 
+                      onClick={() => handleTriggerQuickImageUpdate(currentStoreObjOn360, "logoUrl")}
+                      title="انقر لتعديل شعار المتجر فوراً 📷"
+                      className="w-14 h-14 rounded-2xl bg-slate-950 border-2 border-slate-800 hover:border-amber-500 hover:scale-105 shadow-lg -mt-10 overflow-hidden shrink-0 z-10 cursor-pointer relative group"
+                    >
+                      <img src={currentStoreObjOn360.logoUrl || "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=120&auto=format&fit=crop"} alt="Logo" className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                        <span className="bg-[#D4AF37] text-black text-[7.5px] font-black px-1.5 py-0.5 rounded leading-none shadow">تغيير 📷</span>
+                      </div>
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
@@ -1263,7 +1615,8 @@ export default function StoreManager({
                   { id: "relations", label: "الفروع والمخازن والعمالة 🧱" },
                   { id: "platforms", label: "المنصات ومزامنة القنوات 🔗" },
                   { id: "performance", label: "لوحة الأداء المالي (KPIs) 📈" },
-                  { id: "edit", label: "تعديل الهوية والبيانات ⚙️" }
+                  { id: "edit", label: "تعديل الهوية والبيانات ⚙️" },
+                  { id: "cameras", label: "بث الكاميرات المباشر 🎥" }
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -1574,6 +1927,9 @@ export default function StoreManager({
                           setBranchFormWh("");
                           setBranchFormType("فرع بيع");
                           setBranchFormStatus("نشط");
+                          const currentStore = stores.find(s => s.id === viewingStore360Id);
+                          setBranchFormCompanyId(currentStore?.companyId || currentStore?.company_id || companies[0]?.id || "");
+                          setBranchFormStoreId(viewingStore360Id || "");
                           setShowBranchModal(true);
                         }}
                         className="flex items-center gap-1.5 py-2 px-4 rounded-lg text-xs font-black bg-amber-500 hover:bg-amber-400 text-black transition-all cursor-pointer border-none"
@@ -1590,6 +1946,8 @@ export default function StoreManager({
                           setWhFormCapacity(3000);
                           setWhFormType("sub");
                           setWhFormBranch("");
+                          const currentStore = stores.find(s => s.id === viewingStore360Id);
+                          setWhFormCompanyId(currentStore?.companyId || currentStore?.company_id || companies[0]?.id || "");
                           setShowWhModal(true);
                         }}
                         className="flex items-center gap-1.5 py-2 px-4 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-all cursor-pointer border-none"
@@ -1640,6 +1998,9 @@ export default function StoreManager({
                                 setBranchFormWh("");
                                 setBranchFormType("فرع بيع");
                                 setBranchFormStatus("نشط");
+                                const currentStore = stores.find(s => s.id === viewingStore360Id);
+                                setBranchFormCompanyId(currentStore?.companyId || currentStore?.company_id || companies[0]?.id || "");
+                                setBranchFormStoreId(viewingStore360Id || "");
                                 setShowBranchModal(true);
                               }}
                               className="mt-3 text-xs text-amber-500 underline hover:text-amber-400 bg-transparent border-0 cursor-pointer"
@@ -2137,23 +2498,91 @@ export default function StoreManager({
                             </div>
                           </div>
 
-                          {/* Simulators */}
+                          {/* Real Uploads */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-850/60">
                             <div>
                               <span className="block text-[10px] text-gray-500 mb-1">الشعار الرسمي (Logo):</span>
-                              <button type="button" onClick={() => simulateImageUpload("logo")} className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs rounded-xl text-gray-300">رفع الشعار 📸</button>
+                              <div className="space-y-1.5">
+                                {uploadedLogo && (
+                                  <div className="relative w-full h-16 rounded-xl border border-slate-800 overflow-hidden bg-slate-950 flex items-center justify-center group">
+                                    <img src={uploadedLogo} className="h-full w-full object-cover" />
+                                    <button 
+                                      type="button" 
+                                      onClick={() => setUploadedLogo("")}
+                                      className="absolute inset-0 bg-red-950/80 text-white text-[10px] font-bold opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer border-none"
+                                    >
+                                      حذف الشعار
+                                    </button>
+                                  </div>
+                                )}
+                                <button type="button" onClick={() => simulateImageUpload("logo")} className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs rounded-xl text-gray-300 flex items-center justify-center gap-1.5 cursor-pointer">
+                                  <span>📂</span>
+                                  <span>{uploadedLogo ? "تغيير الشعار" : "رفع الشعار"}</span>
+                                </button>
+                              </div>
                             </div>
                             <div>
                               <span className="block text-[10px] text-gray-500 mb-1">صورة الغلاف (Cover):</span>
-                              <button type="button" onClick={() => simulateImageUpload("cover")} className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs rounded-xl text-gray-300">رفع الغلاف 📸</button>
+                              <div className="space-y-1.5">
+                                {uploadedCover && (
+                                  <div className="relative w-full h-16 rounded-xl border border-slate-800 overflow-hidden bg-slate-950 flex items-center justify-center group">
+                                    <img src={uploadedCover} className="h-full w-full object-cover" />
+                                    <button 
+                                      type="button" 
+                                      onClick={() => setUploadedCover("")}
+                                      className="absolute inset-0 bg-red-950/80 text-white text-[10px] font-bold opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer border-none"
+                                    >
+                                      حذف الغلاف
+                                    </button>
+                                  </div>
+                                )}
+                                <button type="button" onClick={() => simulateImageUpload("cover")} className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs rounded-xl text-gray-300 flex items-center justify-center gap-1.5 cursor-pointer">
+                                  <span>📂</span>
+                                  <span>{uploadedCover ? "تغيير الغلاف" : "رفع الغلاف"}</span>
+                                </button>
+                              </div>
                             </div>
                             <div>
                               <span className="block text-[10px] text-gray-500 mb-1">شعار الفاتورة (Invoice):</span>
-                              <button type="button" onClick={() => simulateImageUpload("invoice")} className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs rounded-xl text-gray-300">فاتورة PDF 📸</button>
+                              <div className="space-y-1.5">
+                                {uploadedInvoiceLogo && (
+                                  <div className="relative w-full h-16 rounded-xl border border-slate-800 overflow-hidden bg-slate-950 flex items-center justify-center group">
+                                    <img src={uploadedInvoiceLogo} className="h-full w-full object-cover" />
+                                    <button 
+                                      type="button" 
+                                      onClick={() => setUploadedInvoiceLogo("")}
+                                      className="absolute inset-0 bg-red-950/80 text-white text-[10px] font-bold opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer border-none"
+                                    >
+                                      حذف الشعار
+                                    </button>
+                                  </div>
+                                )}
+                                <button type="button" onClick={() => simulateImageUpload("invoice")} className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs rounded-xl text-gray-300 flex items-center justify-center gap-1.5 cursor-pointer">
+                                  <span>📂</span>
+                                  <span>{uploadedInvoiceLogo ? "تغيير الفاتورة" : "رفع الفاتورة"}</span>
+                                </button>
+                              </div>
                             </div>
                             <div>
                               <span className="block text-[10px] text-gray-500 mb-1">ختم المؤسسة الملون (Stamp):</span>
-                              <button type="button" onClick={() => simulateImageUpload("stamp")} className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs rounded-xl text-gray-300">الختم الضريبي 📸</button>
+                              <div className="space-y-1.5">
+                                {uploadedStamp && (
+                                  <div className="relative w-full h-16 rounded-xl border border-slate-800 overflow-hidden bg-slate-950 flex items-center justify-center group">
+                                    <img src={uploadedStamp} className="h-full w-full object-cover" />
+                                    <button 
+                                      type="button" 
+                                      onClick={() => setUploadedStamp("")}
+                                      className="absolute inset-0 bg-red-950/80 text-white text-[10px] font-bold opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer border-none"
+                                    >
+                                      حذف الختم
+                                    </button>
+                                  </div>
+                                )}
+                                <button type="button" onClick={() => simulateImageUpload("stamp")} className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs rounded-xl text-gray-300 flex items-center justify-center gap-1.5 cursor-pointer">
+                                  <span>📂</span>
+                                  <span>{uploadedStamp ? "تغيير الختم" : "رفع الختم"}</span>
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -2445,6 +2874,27 @@ export default function StoreManager({
               <div className="p-5 rounded-2xl bg-slate-900/30 border border-slate-800">
                 {activeFormTab === "general" && (
                   <div className="space-y-4 font-sans text-xs">
+                    
+                    <div className="p-3.5 bg-amber-500/5 rounded-xl border border-amber-500/20 mb-2 text-right">
+                      <label className="block text-amber-400 font-extrabold text-[11px] mb-1.5 font-sans">
+                        🏢 المنشأة / الشركة الأم التابع لها هذا المتجر التابع (إلزامي):
+                      </label>
+                      <select
+                        value={formCompanyId}
+                        onChange={(e) => setFormCompanyId(e.target.value)}
+                        className="w-full text-xs rounded-xl py-2.5 px-3 bg-slate-950 border border-slate-850 text-white outline-none focus:border-amber-500 text-right font-medium cursor-pointer"
+                      >
+                        {companies.map(comp => (
+                          <option key={comp.id} value={comp.id}>
+                            {comp.name} - {comp.companyLegalName} (سجل: {comp.crNumber})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        سيتم ربط هذا المتجر (علامة وقناة بيع) بالكيان القانوني المحدد لتسهيل دمج الفروع والوثائق والضرائب بشكل هرمي متصل.
+                      </p>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-right pr-1">
                       <div>
                         <label className="block text-gray-400 mb-1.5">• اسم المتجر الأساسي (الداخلي بالـ ERP):</label>
@@ -2617,6 +3067,173 @@ export default function StoreManager({
                     </div>
                   </div>
                 )}
+
+                {store360ActiveTab === "cameras" && currentStoreObjOn360 && (
+                  <div className="p-5 rounded-2xl bg-slate-900/30 border border-slate-800 space-y-6">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                      <div className="text-right">
+                        <h3 className="text-sm font-black text-white flex items-center gap-2 justify-end">
+                          <span>مركز التحكم ورصد كاميرات المراقبة 🎥⚡</span>
+                        </h3>
+                        <p className="text-[10px] text-gray-400 mt-1">بث حي ومباشر للفروع التابعة ومراقبة الصندوق والمخازن وسجل الأحداث للذكاء الاصطناعي.</p>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10.5px] text-gray-400">الفرع النشط للمشاهدة:</span>
+                        <select 
+                          value={cameraSelectedBranchId}
+                          onChange={(e) => {
+                            setCameraSelectedBranchId(e.target.value);
+                            setEditingCameraId(null);
+                          }}
+                          className="rounded-xl p-2.5 bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500 text-right font-sans text-xs"
+                        >
+                          <option value="">-- اختر الفرع --</option>
+                          {branches
+                            .filter(b => b.storeId === currentStoreObjOn360.id || b.store_id === currentStoreObjOn360.id)
+                            .map(b => (
+                              <option key={b.id} value={b.id}>
+                                📍 {b.name} ({b.city})
+                              </option>
+                            ))
+                          }
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Empty state or Cam Grid */}
+                    {!cameraSelectedBranchId ? (
+                      <div className="text-center py-12 text-gray-500 border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
+                        <Video className="w-10 h-10 mx-auto mb-3 text-slate-700" />
+                        <p className="text-xs">يرجى تحديد فرع نشط لعرض بث كاميرات المراقبة الخاصة به.</p>
+                      </div>
+                    ) : (
+                      (() => {
+                        const activeBranchObj = branches.find(b => b.id === cameraSelectedBranchId);
+                        // Filter or seed default cameras
+                        const activeBranchCams = (() => {
+                          const filtered = storeCameras.filter(c => c.branchId === cameraSelectedBranchId);
+                          if (filtered.length > 0) return filtered;
+                          
+                          // Initialize 4 defaults
+                          return [
+                            { id: `cam_${cameraSelectedBranchId}_1`, branchId: cameraSelectedBranchId, name: "بوابة الدخول الرئيسية (Entrance)", streamUrl: "", status: "online" },
+                            { id: `cam_${cameraSelectedBranchId}_2`, branchId: cameraSelectedBranchId, name: "منطقة المحاسبة POS 1 (Cashier)", streamUrl: "", status: "online" },
+                            { id: `cam_${cameraSelectedBranchId}_3`, branchId: cameraSelectedBranchId, name: "ممر المنتجات الرئيسي (Aisle)", streamUrl: "", status: "online" },
+                            { id: `cam_${cameraSelectedBranchId}_4`, branchId: cameraSelectedBranchId, name: "مستودع الجرد والتحميل (Logistics)", streamUrl: "", status: "online" }
+                          ];
+                        })();
+
+                        const handleSaveCameraSettings = (camId: string) => {
+                          let updated = [...storeCameras];
+                          const idx = updated.findIndex(c => c.id === camId);
+                          const camObj = activeBranchCams.find(c => c.id === camId);
+                          if (camObj) {
+                            const newCam = {
+                              ...camObj,
+                              name: cameraFormName,
+                              streamUrl: cameraFormUrl
+                            };
+                            if (idx !== -1) {
+                              updated[idx] = newCam;
+                            } else {
+                              updated.push(newCam);
+                            }
+                          }
+                          setStoreCameras(updated);
+                          try {
+                            localStorage.setItem("sahm_branch_cameras", JSON.stringify(updated));
+                          } catch {}
+                          setEditingCameraId(null);
+                          if (triggerNotification) {
+                            triggerNotification("تم تحديث إعدادات الكاميرا بنجاح! ⚙️🎥", "success");
+                          }
+                        };
+
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {activeBranchCams.map((cam: any) => {
+                              const isEditing = editingCameraId === cam.id;
+                              return (
+                                <div key={cam.id} className="p-4 rounded-3xl bg-slate-950/40 border border-slate-800 hover:border-amber-500/20 transition-all flex flex-col justify-between gap-3">
+                                  {/* Live Simulated / Real Video Player */}
+                                  <CCTVFeedSimulator 
+                                    cameraName={cam.name} 
+                                    branchName={activeBranchObj?.name || "فرع تشغيلي"} 
+                                    streamUrl={cam.streamUrl} 
+                                  />
+                                  
+                                  {/* Camera settings Form or Info */}
+                                  {isEditing ? (
+                                    <div className="p-3 bg-slate-950/60 border border-slate-900 rounded-2xl space-y-2.5 text-right font-sans text-xs">
+                                      <div>
+                                        <label className="text-[10px] text-gray-400 block mb-1 font-bold">• اسم وموضع الكاميرا:</label>
+                                        <input 
+                                          type="text" 
+                                          value={cameraFormName} 
+                                          onChange={(e) => setCameraFormName(e.target.value)} 
+                                          className="w-full rounded-xl py-2 px-3 bg-slate-900 border border-slate-800 text-white text-[11px] outline-none focus:border-amber-500 text-right"
+                                          placeholder="مثال: البوابة الخلفية"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-gray-400 block mb-1 font-bold">• رابط البث السحابي (HLS / WebRTC / HTTP Video):</label>
+                                        <input 
+                                          type="text" 
+                                          value={cameraFormUrl} 
+                                          onChange={(e) => setCameraFormUrl(e.target.value)} 
+                                          className="w-full rounded-xl py-2 px-3 bg-slate-900 border border-slate-800 text-white text-[11px] outline-none focus:border-amber-500 text-left font-mono"
+                                          placeholder="https://example.com/stream/playlist.m3u8"
+                                        />
+                                      </div>
+                                      <div className="flex gap-2 justify-end pt-1">
+                                        <button 
+                                          type="button"
+                                          onClick={() => setEditingCameraId(null)}
+                                          className="py-1 px-3 bg-slate-900 hover:bg-slate-800 text-gray-400 hover:text-white rounded-lg text-[10px] font-bold border-none cursor-pointer"
+                                        >
+                                          إلغاء
+                                        </button>
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleSaveCameraSettings(cam.id)}
+                                          className="py-1 px-3.5 bg-amber-500 hover:bg-amber-400 text-black font-extrabold rounded-lg text-[10px] border-none cursor-pointer"
+                                        >
+                                          حفظ التعديل ✓
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex justify-between items-center p-1 bg-slate-950/20 rounded-xl border border-slate-900/50">
+                                      <div className="text-right">
+                                        <span className="text-xs text-white font-extrabold block">🎥 {cam.name}</span>
+                                        <span className="text-[9px] text-gray-500 block mt-0.5 font-mono">
+                                          {cam.streamUrl ? "المصدر: بث مخصص" : "المصدر: محاكاة أمنية ذكية"}
+                                        </span>
+                                      </div>
+                                      <button 
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingCameraId(cam.id);
+                                          setCameraFormName(cam.name);
+                                          setCameraFormUrl(cam.streamUrl || "");
+                                        }}
+                                        className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-amber-500 hover:text-amber-400 rounded-lg text-[10px] font-extrabold border-none cursor-pointer flex items-center gap-1 font-sans"
+                                      >
+                                        <span>تعديل المصدر ⚙️</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2698,6 +3315,7 @@ export default function StoreManager({
               {(() => {
                 const storeToArchiveObj = stores.find(s => s.id === storeToDelete.id);
                 const storeProductsCount = (() => {
+                  if (import.meta.env.VITE_DATA_MODE === "supabase") return 0;
                   try {
                     const localProducts = JSON.parse(localStorage.getItem("sahm_web_products") || "[]");
                     return localProducts.filter((p: any) => p.store_id === storeToDelete.id).length;
@@ -2706,6 +3324,7 @@ export default function StoreManager({
                   }
                 })();
                 const storeInvoicesCount = (() => {
+                  if (import.meta.env.VITE_DATA_MODE === "supabase") return 0;
                   try {
                     const localInvoices = JSON.parse(localStorage.getItem("sahm_web_invoices") || "[]");
                     return localInvoices.filter((inv: any) => inv.store_id === storeToDelete.id).length;
@@ -2797,7 +3416,7 @@ export default function StoreManager({
               </div>
               <button 
                 type="button"
-                onClick={() => { setShowBranchModal(false); setEditingBranch(null); }}
+                onClick={() => { setShowBranchModal(false); setEditingBranch(null); setBranchFormAddressProfile(undefined); }}
                 className="text-gray-400 hover:text-white p-1.5 rounded-lg bg-slate-900/50 hover:bg-slate-900 border border-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -2806,6 +3425,47 @@ export default function StoreManager({
 
             {/* Modal Body: Grid Form */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans text-xs">
+              {/* Company Select */}
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-[10px] text-gray-400 block font-bold">• الشركة/المنشأة المرتبطة <span className="text-rose-500">*</span></label>
+                <select 
+                  value={branchFormCompanyId}
+                  onChange={(e) => {
+                    const newCompId = e.target.value;
+                    setBranchFormCompanyId(newCompId);
+                    setBranchFormStoreId("");
+                  }}
+                  className="w-full rounded-xl p-3 bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500 text-right font-sans"
+                >
+                  <option value="">-- اختر المنشأة المرتبطة --</option>
+                  {companies.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Store Select */}
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-[10px] text-gray-400 block font-bold">• المتجر المرتبط (اختياري)</label>
+                <select 
+                  value={branchFormStoreId}
+                  onChange={(e) => setBranchFormStoreId(e.target.value)}
+                  className="w-full rounded-xl p-3 bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500 text-right font-sans"
+                >
+                  <option value="">-- بدون متجر مرتبط (اختياري) --</option>
+                  {stores
+                    .filter(s => s.companyId === branchFormCompanyId || s.company_id === branchFormCompanyId)
+                    .map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))
+                  }
+                </select>
+              </div>
+
               {/* Branch Name */}
               <div className="space-y-1">
                 <label className="text-[10px] text-gray-400 block font-bold">• اسم الفرع <span className="text-rose-500">*</span></label>
@@ -2847,6 +3507,22 @@ export default function StoreManager({
                   value={branchFormAddress}
                   onChange={(e) => setBranchFormAddress(e.target.value)}
                   className="w-full rounded-xl p-3 bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-amber-500 text-right font-sans"
+                />
+              </div>
+
+              {/* National Address (Optional) */}
+              <div className="sm:col-span-2 pt-1">
+                <NationalAddressForm 
+                  initialAddress={branchFormAddressProfile} 
+                  onChange={(addr) => {
+                    setBranchFormAddressProfile(addr);
+                    // Auto-fill full address from National Address details if present
+                    const formatted = `${addr.buildingNumber} ${addr.streetName}، ${addr.district}، ${addr.city} ${addr.postalCode}`;
+                    if (addr.buildingNumber || addr.streetName || addr.district) {
+                      setBranchFormAddress(formatted);
+                    }
+                  }} 
+                  theme={theme} 
                 />
               </div>
 
@@ -2924,7 +3600,7 @@ export default function StoreManager({
             <div className="flex items-center justify-end gap-3 pt-3 border-t font-sans" style={{ borderColor: theme.border }}>
               <button
                 type="button"
-                onClick={() => { setShowBranchModal(false); setEditingBranch(null); }}
+                onClick={() => { setShowBranchModal(false); setEditingBranch(null); setBranchFormAddressProfile(undefined); }}
                 className="py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-950 border border-slate-800 text-gray-400 hover:text-white cursor-pointer"
               >
                 إلغاء
@@ -3149,6 +3825,26 @@ export default function StoreManager({
 
             {/* Modal Body */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans text-xs">
+              {/* Company Select */}
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-[10px] text-gray-400 block font-bold">• الشركة/المنشأة المرتبطة <span className="text-rose-500">*</span></label>
+                <select 
+                  value={whFormCompanyId}
+                  onChange={(e) => {
+                    setWhFormCompanyId(e.target.value);
+                    setWhFormBranch(""); // Reset branch when company changes
+                  }}
+                  className="w-full rounded-xl p-3 bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500 text-right font-sans"
+                >
+                  <option value="">-- اختر المنشأة المرتبطة --</option>
+                  {companies.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Name */}
               <div className="space-y-1">
                 <label className="text-[10px] text-gray-400 block font-bold">• اسم المستودع <span className="text-rose-500">*</span></label>
@@ -3201,18 +3897,21 @@ export default function StoreManager({
 
               {/* Associated Branch */}
               <div className="space-y-1 sm:col-span-2">
-                <label className="text-[10px] text-gray-400 block font-bold">• ربطه بالفرع التابع له فوراً</label>
+                <label className="text-[10px] text-gray-400 block font-bold">• ربطه بالفرع التابع له فوراً (اختياري)</label>
                 <select 
                   value={whFormBranch}
                   onChange={(e) => setWhFormBranch(e.target.value)}
                   className="w-full rounded-xl p-3 bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-emerald-500 text-right font-medium font-sans"
                 >
                   <option value="">-- لا يوجد فرع/مستودع غير مرتبط --</option>
-                  {branches.map(b => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.city})
-                    </option>
-                  ))}
+                  {branches
+                    .filter(b => b.companyId === whFormCompanyId || b.company_id === whFormCompanyId)
+                    .map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.city})
+                      </option>
+                    ))
+                  }
                 </select>
               </div>
             </div>
@@ -3239,6 +3938,242 @@ export default function StoreManager({
         </div>
       )}
 
+      {/* QUICK LOGO / COVER IMAGE MODAL ON CLICK */}
+      {quickImageStoreObj && quickImageField && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#0b0f19] border border-slate-800 shadow-[0_0_30px_rgba(212,175,55,0.15)] rounded-2xl overflow-hidden text-right select-none animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-4 border-b border-slate-850 flex items-center justify-between bg-zinc-950">
+              <span className="text-[9px] bg-[#D4AF37] text-black px-2 py-0.5 rounded font-black">التبديل الفوري للصور 📷</span>
+              <h3 className="text-sm font-black text-white">تحديث صورة {quickImageField === "logoUrl" ? "شعار الكيان" : "غلاف المعرض"}</h3>
+              <button 
+                onClick={() => { setQuickImageStoreObj(null); setQuickImageField(null); }}
+                className="text-gray-400 hover:text-white cursor-pointer border-none bg-transparent"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4 font-sans">
+              <p className="text-[11px] text-zinc-400 leading-normal font-medium">
+                المنشأة: <strong className="text-white">{quickImageStoreObj.name}</strong>. يمكنك تحميل ملف صورة جديد من جهازك، أو لصق رابط مباشر للصورة أدناه لحفظ التعديلات فوراً.
+              </p>
+
+              {/* Preview */}
+              <div className="bg-zinc-950 p-4 rounded-xl border border-slate-900 flex flex-col items-center justify-center gap-1.5">
+                <span className="text-[8.5px] text-zinc-500 font-bold block">معاينة الصورة الجديدة</span>
+                <div className="w-24 h-16 rounded-lg bg-zinc-900 border border-slate-800 overflow-hidden flex items-center justify-center">
+                  {(quickImageUploadBase64 || quickImageValue) ? (
+                    <img 
+                      src={quickImageUploadBase64 || quickImageValue} 
+                      alt="Brand Preview" 
+                      className="w-full h-full object-cover" 
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <span className="text-[10px] text-zinc-600 font-bold">لا توجد صورة</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Local upload input */}
+              <div className="space-y-1.5">
+                <label className="text-[10.5px] text-amber-500 font-extrabold block">الخيار الأول: ارفع ملف صورة من جهازك:</label>
+                <input 
+                  type="file" 
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (event) => {
+                        if (event.target?.result) {
+                          setQuickImageUploadBase64(event.target.result as string);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="w-full bg-zinc-950 text-gray-300 border border-slate-900 rounded-xl p-2.5 text-xs focus:outline-none cursor-pointer"
+                />
+              </div>
+
+              {/* Paste URL */}
+              <div className="space-y-1.5">
+                <label className="text-[10.5px] text-amber-500 font-extrabold block">الخيار الثاني: أو الصق رابط صورة مباشر (URL):</label>
+                <input 
+                  type="text"
+                  value={quickImageValue}
+                  onChange={(e) => {
+                    setQuickImageValue(e.target.value);
+                    setQuickImageUploadBase64(""); // reset file upload to prefer typed url
+                  }}
+                  placeholder="https://example.com/logo.png"
+                  className="w-full bg-zinc-950 text-gray-300 border border-slate-900 rounded-xl p-2.5 text-left font-mono text-[11px] focus:outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-zinc-950 border-t border-slate-850 flex items-center justify-end gap-3.5">
+              <button
+                type="button"
+                onClick={() => { setQuickImageStoreObj(null); setQuickImageField(null); }}
+                className="py-2 px-4 rounded-xl text-xs font-bold bg-transparent hover:bg-slate-900 text-gray-400 hover:text-white border-none cursor-pointer"
+              >
+                إلغاء التعديل
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveQuickImageUpdate}
+                className="py-2 px-5 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-black cursor-pointer border-none shadow"
+              >
+                حفظ التغييرات فوراً ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+interface CCTVFeedProps {
+  cameraName: string;
+  branchName: string;
+  streamUrl?: string;
+}
+
+function CCTVFeedSimulator({ cameraName, branchName, streamUrl }: CCTVFeedProps) {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (streamUrl) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animationId: number;
+    let time = 0;
+
+    const render = () => {
+      time += 0.05;
+      const w = (canvas.width = 320);
+      const h = (canvas.height = 180);
+
+      ctx.fillStyle = "#090d16";
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = "rgba(0, 255, 128, 0.04)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < w; i += 20) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, h);
+        ctx.stroke();
+      }
+      for (let j = 0; j < h; j += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, j);
+        ctx.lineTo(w, j);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = "rgba(0, 255, 128, 0.06)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, 40 + Math.sin(time) * 4, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(0, 255, 128, 0.12)";
+      ctx.lineWidth = 1.5;
+      const sweepY = (Math.sin(time * 0.7) * 0.5 + 0.5) * h;
+      ctx.beginPath();
+      ctx.moveTo(0, sweepY);
+      ctx.lineTo(w, sweepY);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.02)";
+      ctx.lineWidth = 0.5;
+      for (let y = 0; y < h; y += 4) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (Math.random() < 0.05) {
+          const noise = Math.random() * 20;
+          d[i] = Math.min(255, d[i] + noise);
+          d[i + 1] = Math.min(255, d[i + 1] + noise);
+          d[i + 2] = Math.min(255, d[i + 2] + noise);
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      ctx.font = "bold 9px monospace";
+      if (Math.floor(time * 2.5) % 2 === 0) {
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(15, 18, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+      } else {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+      }
+      ctx.fillText("LIVE  REC", 24, 21);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(`CAM: ${cameraName}`, 12, h - 25);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.fillText(`LOC: ${branchName}`, 12, h - 12);
+
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const timeStr = now.toTimeString().slice(0, 8);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.fillText(`${dateStr} ${timeStr}`, w - 125, 21);
+
+      animationId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      cancelAnimationFrame(animationId);
+    };
+  }, [cameraName, branchName, streamUrl]);
+
+  if (streamUrl) {
+    return (
+      <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-900 shadow-inner bg-black">
+        <video 
+          src={streamUrl} 
+          autoPlay 
+          loop 
+          muted 
+          playsInline 
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute top-3 left-3 bg-red-500/20 border border-red-500/30 text-red-400 py-0.5 px-2 rounded text-[8px] font-black uppercase tracking-wider">
+          LIVE FEED
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-900 shadow-inner bg-black">
+      <canvas ref={canvasRef} className="w-full h-full block" />
     </div>
   );
 }

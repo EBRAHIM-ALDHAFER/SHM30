@@ -40,6 +40,7 @@ interface ProductBranchesProps {
   triggerNotification?: (text: string, type: any) => void;
   addAuditLog?: (event: string, text: string) => void;
   activeStoreId?: string;
+  onAddBranch?: () => void;
 }
 
 export function ProductBranches({
@@ -53,7 +54,8 @@ export function ProductBranches({
   setTransfers,
   triggerNotification,
   addAuditLog,
-  activeStoreId
+  activeStoreId,
+  onAddBranch
 }: ProductBranchesProps) {
   
   const [selectedBranchId, setSelectedBranchId] = useState<string>("");
@@ -137,7 +139,7 @@ export function ProductBranches({
     let changed = false;
     const updatedBranches = branches.map(b => {
       if (!b.items || b.items.length === 0) {
-        const isRiyadh = b.id === "br_riyadh_main";
+        const isRiyadh = b.id === "branch_riyadh_main";
         const isJeddah = b.id.includes("jeddah") || b.id === "br_jeddah_redsea" || b.id === "br_jeddah_int";
         const ratio = isRiyadh ? 0.4 : isJeddah ? 0.25 : 0.15;
 
@@ -176,7 +178,7 @@ export function ProductBranches({
     setActiveMenuBranchId(null);
     if (activeStoreId === "all_stores") {
       if (triggerNotification) {
-        triggerNotification("⚠️ لا يمكن تعديل حالة تشغيل الفروع أو أرشفتها في وضع العرض الموحد لجميع المتاجر. يرجى تفعيل متجر محدد أولاً.", "error");
+        triggerNotification("لا يمكن تعديل حالة تشغيل الفروع أو أرشفتها في وضع العرض الموحد لجميع المتاجر. يرجى تفعيل متجر محدد أولاً.", "error");
       }
       return;
     }
@@ -193,8 +195,8 @@ export function ProductBranches({
     if (triggerNotification) {
       triggerNotification(
         updatedStatus 
-          ? `تم إعادة تنشيط وتشغيل فرع "${br.name}" بنجاح 🟢` 
-          : `تم تعطيل وأرشفة فرع "${br.name}" مؤقتاً بالكامل 🗄️`, 
+          ? `تم إعادة تنشيط وتشغيل فرع "${br.name}" بنجاح` 
+          : `تم تعطيل وأرشفة فرع "${br.name}" مؤقتاً بالكامل`, 
         "info"
       );
     }
@@ -208,36 +210,73 @@ export function ProductBranches({
 
     setBranchTimeline(prev => [
       {
-        date: "الآن - تغيير حالة التشغيل",
+        date: "الآن - تغيير الحالة والتوثيق",
         title: updatedStatus ? `تنشيط فرع ${br.name}` : `أرشفة فرع ${br.name}`,
-        desc: `تم توثيق وضع التشغيل للفرع وإصدار إشعار الفوترة الضريبية السحابي.`
+        desc: `تم تعديل وتعميم حالة تشغيل الفرع في الدليل المحاسبي ومنافذ سهم إلى: ${updatedStatus ? "نشط" : "معطل ومؤرشف"}.`
       },
       ...prev
     ]);
+
+    setTransferringBranch(null);
   };
 
-  // 3. Edit branch submit handler
+  // Modals Open Helpers
   const openEditModal = (br: Branch, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setActiveMenuBranchId(null);
     setEditingBranch(br);
     setEditForm({
       name: br.name,
-      city: br.city,
-      address: br.address,
-      manager: br.manager,
-      phone: br.phone || "0501112223",
+      city: br.city || "الرياض",
+      address: br.address || "",
+      manager: br.manager || "",
+      phone: br.phone || "",
       associatedWh: br.associatedWh || "",
-      isActive: br.isActive,
+      isActive: br.isActive !== false,
       workingHours: br.workingHours || "08:00 ص - 11:00 م"
     });
   };
 
+  const openLinkModal = (br: Branch, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setActiveMenuBranchId(null);
+    setLinkingWhBranch(br);
+    setLinkForm({
+      warehouseId: warehouses[0]?.id || ""
+    });
+  };
+
+  const openAddProdModal = (br: Branch, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setActiveMenuBranchId(null);
+    setAddingProdBranch(br);
+    setAddProdForm({
+      productId: products[0]?.id || "",
+      qty: 30,
+      minLimit: 10,
+      locationCode: "صالة العرض الرئيسية"
+    });
+  };
+
+  const openTransferModal = (br: Branch, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setActiveMenuBranchId(null);
+    setTransferringBranch(br);
+    setTransferForm({
+      fromType: "warehouse",
+      fromId: warehouses[0]?.id || "",
+      productId: products[0]?.id || "",
+      qty: 15,
+      notes: "سد عجز بالفرع ودعم المبيعات الحية"
+    });
+  };
+
+  // Modals Submit Handlers
   const handleEditBranchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBranch) return;
 
-    const updatedBranches = branches.map(b => {
+    const updated = branches.map(b => {
       if (b.id === editingBranch.id) {
         return {
           ...b,
@@ -246,23 +285,23 @@ export function ProductBranches({
           address: editForm.address.trim(),
           manager: editForm.manager.trim(),
           phone: editForm.phone.trim(),
-          associatedWh: editForm.associatedWh || undefined,
+          associatedWh: editForm.associatedWh,
           isActive: editForm.isActive,
-          workingHours: editForm.workingHours
+          workingHours: editForm.workingHours.trim()
         };
       }
       return b;
     });
 
-    setBranches(updatedBranches);
-    if (triggerNotification) triggerNotification(`تم تحديث بيانات المعرض "${editForm.name}" بنجاح ✨`, "success");
-    if (addAuditLog) addAuditLog("تعديل معرض فرعي", `تم تعديل بيانات منفذ بيع ${editForm.name} والمسئول ${editForm.manager}`);
+    setBranches(updated);
+    if (triggerNotification) triggerNotification(`تم تحديث بيانات فرع "${editForm.name}" بنجاح`, "success");
+    if (addAuditLog) addAuditLog("تعديل فرع", `تم تعديل بيانات فرع ${editForm.name}`);
 
     setBranchTimeline(prev => [
       {
-        date: "الآن - تعديل البيانات التشغيلية",
+        date: "الآن - تحديث بيانات الفرع",
         title: `تحديث بيانات ${editForm.name}`,
-        desc: `تعديل المسؤول: ${editForm.manager}، الهاتف: ${editForm.phone}، ساعات العمل: ${editForm.workingHours}`
+        desc: `تغيير المسؤول: ${editForm.manager}، ساعات العمل: ${editForm.workingHours}.`
       },
       ...prev
     ]);
@@ -270,43 +309,33 @@ export function ProductBranches({
     setEditingBranch(null);
   };
 
-  // 4. Link warehouse submit handler
-  const openLinkModal = (br: Branch, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setActiveMenuBranchId(null);
-    setLinkingWhBranch(br);
-    setLinkForm({
-      warehouseId: br.associatedWh || warehouses[0]?.id || ""
-    });
-  };
-
   const handleLinkBranchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!linkingWhBranch || !linkForm.warehouseId) return;
 
-    const selectedWh = warehouses.find(w => w.id === linkForm.warehouseId);
-    if (!selectedWh) return;
+    const targetWh = warehouses.find(w => w.id === linkForm.warehouseId);
+    if (!targetWh) return;
 
-    const updatedBranches = branches.map(b => {
+    const updated = branches.map(b => {
       if (b.id === linkingWhBranch.id) {
         return { ...b, associatedWh: linkForm.warehouseId };
       }
       return b;
     });
-    setBranches(updatedBranches);
+    setBranches(updated);
 
     if (triggerNotification) {
-      triggerNotification(`تم ربط المعرض "${linkingWhBranch.name}" بمستودع الإسناد "${selectedWh.name}" 🔗`, "success");
+      triggerNotification(`تم ربط صالة المعرض "${linkingWhBranch.name}" بالمستودع اللوجستي "${targetWh.name}" بنجاح`, "success");
     }
     if (addAuditLog) {
-      addAuditLog("ربط الفرع بمستودع", `ربط الفرع ${linkingWhBranch.name} لوجستياً بمستودع ${selectedWh.name}`);
+      addAuditLog("ربط فرع بمستودع", `تم ربط الفرع ${linkingWhBranch.name} بالمستودع اللوجستي ${targetWh.name}`);
     }
 
     setBranchTimeline(prev => [
       {
-        date: "الآن - تعيين خريطة الإمداد",
-        title: `ربط ${linkingWhBranch.name} بمستودع لوجستي`,
-        desc: `تخصيص مستودع [${selectedWh.name}] كمزود رئيسي لإمدادات البضائع والشحنات المباشرة.`
+        date: "الآن - توثيق سلاسل الإمداد",
+        title: "ربط المسار اللوجستي",
+        desc: `تم إسناد ورسم إمداد فرع "${linkingWhBranch.name}" من مستودع "${targetWh.name}" بمعدل مزامنة فوري.`
       },
       ...prev
     ]);
@@ -314,29 +343,16 @@ export function ProductBranches({
     setLinkingWhBranch(null);
   };
 
-  // 5. Add products to branch submit handler
-  const openAddProdModal = (br: Branch, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setActiveMenuBranchId(null);
-    setAddingProdBranch(br);
-    setAddProdForm({
-      productId: products[0]?.id || "",
-      qty: 40,
-      minLimit: 12,
-      locationCode: "الرف الرئيسي A2"
-    });
-  };
-
   const handleAddProdSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!addingProdBranch || !addProdForm.productId) return;
 
-    const productObj = products.find(p => p.id === addProdForm.productId);
-    if (!productObj) return;
+    const targetProduct = products.find(p => p.id === addProdForm.productId);
+    if (!targetProduct) return;
 
     const qtyToAdd = parseInt(addProdForm.qty as any) || 0;
     const minLimit = parseInt(addProdForm.minLimit as any) || 10;
-    const locationCode = addProdForm.locationCode.trim() || "صالة العرض";
+    const locationCode = addProdForm.locationCode.trim() || "صالة العرض الرئيسية";
 
     const updatedBranches = branches.map(b => {
       if (b.id === addingProdBranch.id) {
@@ -364,18 +380,19 @@ export function ProductBranches({
     });
 
     setBranches(updatedBranches);
+
     if (triggerNotification) {
-      triggerNotification(`تم تسجيل وتوريد +${qtyToAdd} وحدة من "${productObj.name}" إلى فرع "${addingProdBranch.name}"`, "success");
+      triggerNotification(`تم تسجيل وتوريد +${qtyToAdd} وحدة من صنف "${targetProduct.name}" لـ ${addingProdBranch.name}`, "success");
     }
     if (addAuditLog) {
-      addAuditLog("إيداع بضائع بالفرع", `إضافة ${qtyToAdd} وحدة من صنف "${productObj.name}" لفرع ${addingProdBranch.name}`);
+      addAuditLog("شحن منتج للفرع", `شحن وتوريد ${qtyToAdd} وحدة للمنتج ${targetProduct.name} داخل معرض ${addingProdBranch.name}`);
     }
 
     setBranchTimeline(prev => [
       {
-        date: "الآن - زيادة مخزون المعرض",
-        title: `توريد بضاعة إلى ${addingProdBranch.name}`,
-        desc: `إيداع ${qtyToAdd} قطعة من [${productObj.name}] وتنسيق تشغيلها بالرف: ${locationCode}.`
+        date: "الآن - تغذية لوجستية",
+        title: `توريد منتجات إلى ${addingProdBranch.name}`,
+        desc: `تم توريد صنف [${targetProduct.name}] بكمية (${qtyToAdd} وحدة) في المعرض.`
       },
       ...prev
     ]);
@@ -383,78 +400,100 @@ export function ProductBranches({
     setAddingProdBranch(null);
   };
 
-  // 6. Stock transfer submit handler (from warehouse or branch to branch/warehouse)
-  const openTransferModal = (br: Branch, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setActiveMenuBranchId(null);
-    setTransferringBranch(br);
-
-    const defaultSourceId = br.associatedWh || warehouses[0]?.id || "";
-    setTransferForm({
-      fromType: "warehouse",
-      fromId: defaultSourceId,
-      productId: products[0]?.id || "",
-      qty: 20,
-      notes: "إعادة توازن مخزون لدعم ارتفاع حجم المبيعات"
-    });
-  };
-
   const handleTransferSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (activeStoreId === "all_stores") {
-      if (triggerNotification) {
-        triggerNotification("⚠️ لا يمكن إتمام تحويلات المخزون أو نقل المنتجات بين المستودعات والفروع في وضع العرض الموحد. يرجى تفعيل متجر محدد أولاً.", "error");
-      }
-      return;
-    }
-    if (!transferringBranch || !transferForm.fromId || !transferForm.productId) return;
+    if (!transferringBranch || !transferForm.productId) return;
 
     const qty = parseInt(transferForm.qty as any) || 0;
-    const isSourceWarehouse = transferForm.fromType === "warehouse";
+    const sourceId = transferForm.fromId;
+    const isSourceBranch = transferForm.fromType === "branch";
+    
     const productObj = products.find(p => p.id === transferForm.productId);
     if (!productObj) return;
 
-    // Check inventory availability in source
-    let availableInSource = 0;
-    if (isSourceWarehouse) {
-      const srcWh = warehouses.find(w => w.id === transferForm.fromId);
-      const whItem = srcWh?.items?.find(item => item.productId === transferForm.productId);
-      availableInSource = whItem?.stock || 0;
+    // 1. Verify source has enough stock
+    let sourceHasStock = false;
+    let sourceStockVal = 0;
+    let sourceName = "";
+
+    if (isSourceBranch) {
+      const sourceBranch = branches.find(b => b.id === sourceId);
+      sourceName = sourceBranch?.name || "فرع آخر";
+      const item = sourceBranch?.items?.find(it => it.productId === transferForm.productId);
+      sourceStockVal = item?.stock || 0;
+      if (sourceStockVal >= qty) {
+        sourceHasStock = true;
+      }
     } else {
-      const srcBr = branches.find(b => b.id === transferForm.fromId);
-      const brItem = srcBr?.items?.find(item => item.productId === transferForm.productId);
-      availableInSource = brItem?.stock || 0;
+      const sourceWh = warehouses.find(w => w.id === sourceId);
+      sourceName = sourceWh?.name || "مستودع";
+      const item = sourceWh?.items?.find(it => it.productId === transferForm.productId);
+      sourceStockVal = item?.stock || 0;
+      if (sourceStockVal >= qty) {
+        sourceHasStock = true;
+      }
     }
 
-    if (availableInSource < qty) {
-      alert(`عذراً! الكمية المطلوبة للتحويل (${qty}) تتجاوز المتاح في المصدر المحدد (${availableInSource} وحدة).`);
+    if (!sourceHasStock) {
+      if (triggerNotification) {
+        triggerNotification(`عذراً! الكمية المطلوبة للتحويل (${qty}) غير متوفرة في المصدر المختار. المتوفر: ${sourceStockVal}`, "error");
+      }
       return;
     }
 
-    // Deduct from source
-    if (isSourceWarehouse) {
-      const updatedWhs = warehouses.map(w => {
-        if (w.id === transferForm.fromId) {
-          const items = w.items.map(item => {
-            if (item.productId === transferForm.productId) {
-              return { ...item, stock: Math.max(0, item.stock - qty) };
+    // 2. Perform deduction and addition
+    if (isSourceBranch) {
+      // Deduct from source branch
+      const updatedBranches = branches.map(b => {
+        if (b.id === sourceId) {
+          const items = b.items?.map(it => {
+            if (it.productId === transferForm.productId) {
+              return { ...it, stock: Math.max(0, it.stock - qty) };
             }
-            return item;
-          });
+            return it;
+          }) || [];
+          return { ...b, items };
+        }
+        // Add to target branch
+        if (b.id === transferringBranch.id) {
+          const items = b.items ? [...b.items] : [];
+          const idx = items.findIndex(it => it.productId === transferForm.productId);
+          if (idx > -1) {
+            items[idx] = { ...items[idx], stock: items[idx].stock + qty };
+          } else {
+            items.push({ productId: transferForm.productId, stock: qty, minLimit: 10, locationCode: "صالة العرض الرئيسية" });
+          }
+          return { ...b, items };
+        }
+        return b;
+      });
+      setBranches(updatedBranches);
+    } else {
+      // Deduct from source warehouse
+      const updatedWhs = warehouses.map(w => {
+        if (w.id === sourceId) {
+          const items = w.items?.map(it => {
+            if (it.productId === transferForm.productId) {
+              return { ...it, stock: Math.max(0, it.stock - qty) };
+            }
+            return it;
+          }) || [];
           return { ...w, items };
         }
         return w;
       });
       setWarehouses(updatedWhs);
-    } else {
+
+      // Add to target branch
       const updatedBranches = branches.map(b => {
-        if (b.id === transferForm.fromId) {
-          const items = b.items ? b.items.map(item => {
-            if (item.productId === transferForm.productId) {
-              return { ...item, stock: Math.max(0, item.stock - qty) };
-            }
-            return item;
-          }) : [];
+        if (b.id === transferringBranch.id) {
+          const items = b.items ? [...b.items] : [];
+          const idx = items.findIndex(it => it.productId === transferForm.productId);
+          if (idx > -1) {
+            items[idx] = { ...items[idx], stock: items[idx].stock + qty };
+          } else {
+            items.push({ productId: transferForm.productId, stock: qty, minLimit: 10, locationCode: "صالة العرض الرئيسية" });
+          }
           return { ...b, items };
         }
         return b;
@@ -462,45 +501,12 @@ export function ProductBranches({
       setBranches(updatedBranches);
     }
 
-    // Add to target branch
-    const updatedBranchesWithTarget = branches.map(b => {
-      if (b.id === transferringBranch.id) {
-        const items = b.items ? [...b.items] : [];
-        const existingIdx = items.findIndex(item => item.productId === transferForm.productId);
-
-        if (existingIdx > -1) {
-          items[existingIdx] = {
-            ...items[existingIdx],
-            stock: items[existingIdx].stock + qty
-          };
-        } else {
-          items.push({
-            productId: transferForm.productId,
-            stock: qty,
-            minLimit: 10,
-            locationCode: "صالة مخصصة"
-          });
-        }
-        return { ...b, items };
-      }
-      return b;
-    });
-    setBranches(updatedBranchesWithTarget);
-
-    // Get source name
-    let sourceName = "";
-    if (isSourceWarehouse) {
-      sourceName = warehouses.find(w => w.id === transferForm.fromId)?.name || "مستودع";
-    } else {
-      sourceName = branches.find(b => b.id === transferForm.fromId)?.name || "معرض منافس";
-    }
-
-    // Append to transactions ledger
+    // 3. Create stock transfer record
     const newTr: StockTransfer = {
       id: "tr_" + Date.now().toString().slice(-4),
       transferNo: "STK-TRN-" + Math.floor(1000 + Math.random() * 9000),
-      fromType: isSourceWarehouse ? "warehouse" : "branch",
-      fromId: transferForm.fromId,
+      fromType: isSourceBranch ? "branch" : "warehouse",
+      fromId: sourceId,
       fromName: sourceName,
       toType: "branch",
       toId: transferringBranch.id,
@@ -509,27 +515,26 @@ export function ProductBranches({
       productName: productObj.name,
       qty: qty,
       status: "approved",
-      date: new Date().toISOString().split("T")[0],
-      notes: transferForm.notes || "توسعة عهدة الفرع الذكي",
+      date: new Date().toISOString().split('T')[0],
+      notes: transferForm.notes || "تحويل لدعم حركة البيع المعروض",
       historyLogs: [
-        `${new Date().toLocaleString("ar-SA")}: تم تفويض النقل اللوجستي ومزامنته بمجمع منافذ سهم.`
+        `${new Date().toLocaleString("ar-SA")}: تم إكمال النقل من ${sourceName} إلى ${transferringBranch.name}`
       ]
     };
-
     setTransfers((prev: any) => [newTr, ...prev]);
 
     if (triggerNotification) {
-      triggerNotification(`تم تحويل ونقل ${qty} قطعة من "${productObj.name}" لـ "${transferringBranch.name}" بنجاح! 🚚`, "success");
+      triggerNotification(`تم تحويل ${qty} وحدة من "${productObj.name}" من "${sourceName}" إلى "${transferringBranch.name}" بنجاح!`, "success");
     }
     if (addAuditLog) {
-      addAuditLog("تحويل مخزني للفرع", `نقل ${qty} وحدة من "${productObj.name}" من جهة "${sourceName}" لجهة "${transferringBranch.name}"`);
+      addAuditLog("تحويل لوجستي للفرع", `تم ترحيل ${qty} وحدة من "${productObj.name}" لجهة "${transferringBranch.name}"`);
     }
 
     setBranchTimeline(prev => [
       {
         date: "الآن - تحويل لوجستي بنجاح",
         title: "بروتوكول تفريغ الشحن",
-        desc: `استلام +{qty} وحدة من صنف [${productObj.name}] من [${sourceName}] لدعم مستودعات البيع بالموقع.`
+        desc: `استلام +${qty} وحدة من صنف [${productObj.name}] من [${sourceName}] لدعم مستودعات البيع بالموقع.`
       },
       ...prev
     ]);
@@ -558,224 +563,137 @@ export function ProductBranches({
 
   return (
     <div className="space-y-6 text-right font-sans relative">
-      
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/30 p-4 rounded-xl border border-slate-800 no-print">
+
+      <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-slate-900/40 p-4 rounded-xl border border-slate-800 relative z-20">
         <div className="border-r-4 border-emerald-500 pr-4">
-          <h3 className="text-base font-black text-white">إدارية المعارض والفروع وربط منافذ التوزيع 🏬</h3>
-          <p className="text-xs text-gray-400">إدارة حركة العهد ومراسات البيع واستعراض الأداء ومخزون كل معرض حياً بالتفصيل (اضغط على الفروع للتغيير)</p>
+          <h3 className="text-base font-black text-white font-sans">إدارة وحركة المعارض وجرد الفروع</h3>
+          <p className="text-xs text-gray-400">إدارة حركة العهد ومراسات البيع واستعراض الأداء ومخزون كل معرض حياً بالتفصيل</p>
         </div>
-        <div>
+
+        {/* Unified Controls Toolbar */}
+        <div className="flex flex-wrap items-center gap-3 justify-end">
+          
           <button
             type="button"
             onClick={() => setShowAllBranches(val => !val)}
-            className={`py-2 px-4 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
+            className={`py-2 px-3 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer border ${
               showAllBranches
-                ? "bg-emerald-600 text-white border-emerald-500 hover:bg-emerald-500"
-                : "bg-slate-950 text-gray-300 border-slate-800 hover:text-white hover:bg-slate-900"
+                ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                : "bg-slate-950 text-gray-400 border-slate-800 hover:text-white hover:bg-slate-900"
             }`}
           >
-            <span>{showAllBranches ? "📱 عرض فروع المتجر النشط فقط" : "🌐 عرض كل الفروع والمنافذ"}</span>
+            <span>{showAllBranches ? "عرض فروع المتجر النشط" : "عرض كل الفروع"}</span>
           </button>
+
+          {/* Active Branch Dropdown Selector */}
+          <div className="flex items-center gap-2 p-1.5 rounded-xl bg-slate-950/80 border border-slate-800">
+            <span className="text-xs text-gray-400 font-bold pr-1">الفرع النشط:</span>
+            <select
+              value={selectedBranchId}
+              onChange={(e) => setSelectedBranchId(e.target.value)}
+              className="bg-transparent border-none text-xs font-black outline-none cursor-pointer pr-4 pl-1 font-sans text-emerald-450"
+              style={{ color: theme.accent || "#059669" }}
+            >
+              {displayedBranches.map(b => (
+                <option key={b.id || b.branch_id} value={b.id || b.branch_id} className="bg-slate-950 text-white font-sans">
+                  {b.name} {b.isActive === false ? '(مؤرشف)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {onAddBranch && (
+              <button
+                type="button"
+                onClick={onAddBranch}
+                className="py-2 px-3 rounded-xl text-[11px] font-black bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 transition-all active:scale-95 cursor-pointer border-none font-sans"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ إضافة فرع</span>
+              </button>
+            )}
+            
+            {selectedBranch && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => openAddProdModal(selectedBranch)}
+                  className="py-2 px-3 rounded-xl text-[11px] font-black bg-emerald-600 hover:bg-emerald-500 text-black flex items-center gap-1 transition-all active:scale-95 border-none font-sans"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ إضافة منتج</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openTransferModal(selectedBranch)}
+                  className="py-2 px-3 rounded-xl text-[11px] font-black bg-amber-500 hover:bg-amber-400 text-black flex items-center gap-1 transition-all active:scale-95 border-none font-sans"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span>🔄 نقل مخزون</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openLinkModal(selectedBranch)}
+                  className="py-2 px-3 rounded-xl text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-gray-200 flex items-center gap-1 transition-all active:scale-95 border border-slate-750 font-sans"
+                >
+                  <Link2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span>🔗 ربط بمستودع</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openEditModal(selectedBranch)}
+                  className="py-2 px-3 rounded-xl text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-gray-200 flex items-center gap-1 transition-all active:scale-95 border border-slate-750 font-sans"
+                >
+                  <Settings className="w-3.5 h-3.5 text-gray-400" />
+                  <span>📝 تعديل البيانات</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => handleToggleActiveBranch(selectedBranch, e)}
+                  className={`py-2 px-3 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer transition-all active:scale-95 border font-sans ${
+                    selectedBranch.isActive === false
+                      ? "bg-emerald-950/40 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/40"
+                      : "bg-red-950/40 border-red-500/30 text-red-400 hover:bg-red-900/40"
+                  }`}
+                >
+                  <span>{selectedBranch.isActive === false ? "🟢 تنشيط" : "🗄️ أرشفة"}</span>
+                </button>
+              </>
+            )}
+          </div>
+
         </div>
       </div>
 
-      {/* List of branches with Actions list */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {displayedBranches.map((b) => {
-          const isSelected = selectedBranchId === b.id || selectedBranchId === b.branch_id;
-          const isArchived = !b.isActive;
-          const totalStock = b.items ? b.items.reduce((sum, i) => sum + i.stock, 0) : 0;
-
-          return (
-            <div 
-              key={b.id || b.branch_id} 
-              onClick={() => setSelectedBranchId(b.id || b.branch_id)}
-              className={`p-5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden select-none active:scale-[0.98] ${
-                isArchived ? "opacity-60 grayscale-[25%]" : ""
-              } ${
-                isSelected 
-                  ? "bg-slate-850 border-emerald-500 shadow-xl shadow-emerald-500/10" 
-                  : "border-slate-800 bg-slate-900/60 hover:bg-slate-900 hover:border-slate-700"
-              }`}
-              style={{ borderColor: isSelected ? theme.accent || "#059669" : "" }}
-            >
-              {isSelected && (
-                <span className="absolute top-0 left-0 w-full h-[3px]" style={{ backgroundColor: theme.accent || "#059669" }} />
-              )}
-              
-              <div className="flex justify-between items-center mb-3">
-                {/* Actions Popup Dropdown Menu */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(e) => handleDropdownToggle(b.id, e)}
-                    className="p-1.5 rounded-lg hover:bg-slate-800 border-none bg-slate-950 text-gray-400 hover:text-white cursor-pointer transition-all active:scale-95"
-                  >
-                    <MoreVertical className="w-4 h-4" />
-                  </button>
-
-                  {activeMenuBranchId === b.id && (
-                    <div 
-                      className="absolute right-0 mt-1 w-48 rounded-xl border border-slate-800 bg-slate-950 p-1.5 shadow-2xl z-25 text-right space-y-1 text-xs"
-                      onClick={(ev) => ev.stopPropagation()}
-                    >
-                      <button
-                        onClick={(e) => openEditModal(b, e)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-1.8 text-gray-200 hover:text-white hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>📝 تعديل الفرع</span>
-                      </button>
-                      <button
-                        onClick={(e) => openLinkModal(b, e)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-1.8 text-blue-400 hover:text-blue-300 hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>🔗 ربط بمستودع</span>
-                      </button>
-                      <button
-                        onClick={(e) => openAddProdModal(b, e)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-1.8 text-emerald-400 hover:text-emerald-300 hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>📥 إضافة منتجات للفرع</span>
-                      </button>
-                      <button
-                        onClick={(e) => openTransferModal(b, e)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-1.8 text-amber-500 hover:text-amber-400 hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>🔄 نقل مخزون للفرع</span>
-                      </button>
-                      <button
-                        onClick={() => jumpToTab("sales", b.id)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-1.8 text-purple-400 hover:text-purple-300 hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>📊 عرض مبيعات الفرع</span>
-                      </button>
-                      
-                      <div className="h-px bg-slate-900 my-1" />
-                      
-                      <button
-                        onClick={(e) => handleToggleActiveBranch(b, e)}
-                        className={`w-full text-right flex items-center justify-between gap-2 px-3 py-1.8 rounded-lg border-none bg-transparent cursor-pointer font-sans ${
-                          isArchived ? "text-emerald-400 hover:text-emerald-300" : "text-red-400 hover:text-red-300"
-                        }`}
-                      >
-                        <span>{isArchived ? "🟢 إعادة تشغيل" : "🗄️ تعطيل / أرشفة"}</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1.5 font-mono">
-                  <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
-                    isArchived ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"
-                  }`}>
-                    {isArchived ? "مغلق ومؤرشف 🗄️" : "نشط ومستمر ✓"}
-                  </span>
-                  <span className="text-[9px] text-gray-500">{totalStock} وحدة</span>
-                </div>
-              </div>
-
-              <h4 className="text-sm font-black text-white flex items-center gap-2 justify-end">
-                <span>{b.name}</span>
-                <Store className="w-4 h-4 text-emerald-400" style={{ color: theme.accent || "#059669" }} />
-              </h4>
-              <p className="text-[10px] text-gray-400 mt-1">📍 المدينة: {b.city} | {b.address}</p>
-              <p className="text-[10px] text-gray-400">👤 المدير المفوّض: <span className="font-bold text-gray-300">{b.manager}</span></p>
-
-              {!(b.associatedWh || b.linked_warehouse_id) ? (
-                <div 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openLinkModal(b, e);
-                  }}
-                  className="mt-2.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 flex items-center justify-between gap-2 text-right transition-all"
-                >
-                  <span className="text-[10px] text-amber-500 font-bold flex items-center gap-1">
-                    <span>⚠️ غير مربوط بمستودع</span>
-                  </span>
-                  <span className="py-1 px-2.5 bg-amber-500 hover:bg-amber-450 text-black text-[9px] font-black rounded-lg cursor-pointer font-sans">
-                    ربط بمستودع
-                  </span>
-                </div>
-              ) : (
-                <p className="text-[9.5px] text-gray-400 mt-2 flex items-center justify-end gap-1 font-sans">
-                  <span className="text-gray-500">🔗 مرتبط بمستودع:</span>
-                  <span className="font-black text-emerald-400">
-                    {warehouses.find(w => w.id === (b.associatedWh || b.linked_warehouse_id))?.name || "مستودع خارجي"}
-                  </span>
-                </p>
-              )}
-
-              <div className="border-t border-slate-800/80 pt-3 mt-3 flex justify-between text-xs font-bold leading-normal font-mono">
-                <div>
-                  <span className="text-[9px] text-gray-500 block font-sans">المبيعات الإجمالية</span>
-                  <span className="text-white text-xs">{formatMoney(b.sales)}</span>
-                </div>
-                <div>
-                  <span className="text-[9px] text-gray-500 block font-sans">الأرباح الصافية</span>
-                  <span className="text-emerald-400 text-xs">{formatMoney(b.profits)}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Detail dashboard section inside branch details (Requirement 2 & 7) */}
       {selectedBranch && (
-        <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/40 relative overflow-hidden space-y-6">
+        <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/40 relative overflow-hidden space-y-5">
           <div className="absolute right-0 top-0 w-36 h-36 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
           
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          {/* Compact horizontal selected branch details status widget */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-xl bg-slate-950/60 border border-slate-850/80 text-xs">
             <div>
-              <h3 className="text-sm font-black text-white flex items-center gap-2">
-                <Store className="w-5 h-5 text-emerald-450" style={{ color: theme.accent || "#059669" }} />
-                <span>إدارية المعرض: <span className="text-emerald-400" style={{ color: theme.accent }}>{selectedBranch.name}</span> ({selectedBranch.city})</span>
-              </h3>
-              <p className="text-[10px] text-gray-400">طريقة التشغيل الحالية: {selectedBranch.workingHours} | هاتف: {selectedBranch.phone || "0501112223"}</p>
+              <span className="text-gray-550 block font-bold mb-1 font-sans">👤 المدير المسؤول:</span>
+              <span className="font-black text-white text-[13px] font-sans">{selectedBranch.manager || "غير معين"}</span>
             </div>
-
-            {/* CLEAR action buttons inside details (Requirement 2) */}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openEditModal(selectedBranch)}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-gray-200 flex items-center gap-1 cursor-pointer transition-all active:scale-95 border border-slate-755"
-              >
-                <Edit className="w-3.5 h-3.5 text-emerald-400" />
-                <span>✏️ تعديل الفرع</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openLinkModal(selectedBranch)}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-gray-200 flex items-center gap-1 cursor-pointer transition-all active:scale-95 border border-slate-755"
-              >
-                <Link2 className="w-3.5 h-3.5 text-blue-400" />
-                <span>🔗 ربط بمستودع</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openAddProdModal(selectedBranch)}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-emerald-600 hover:bg-emerald-500 text-black flex items-center gap-1 cursor-pointer transition-all active:scale-95 border-none shadow"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>📥 إضافة منتجات</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openTransferModal(selectedBranch)}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-gray-200 flex items-center gap-1 cursor-pointer transition-all active:scale-95 border border-slate-755"
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
-                <span>🚚 نقل مخزون</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("sales")}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-amber-500 hover:bg-amber-400 text-black flex items-center gap-1 cursor-pointer transition-all active:scale-95 border-none shadow"
-              >
-                <BarChart className="w-3.5 h-3.5" />
-                <span>📊 عرض المبيعات</span>
-              </button>
+            <div>
+              <span className="text-gray-550 block font-bold mb-1 font-sans">📍 الموقع الجغرافي:</span>
+              <span className="text-gray-300 text-[13px] font-sans">{selectedBranch.city}، {selectedBranch.address || "غير محدد"}</span>
+            </div>
+            <div>
+              <span className="text-gray-555 block font-bold mb-1 font-sans">🟢 حالة التشغيل:</span>
+              <span className={`font-black text-[13px] font-sans ${selectedBranch.isActive !== false ? "text-emerald-400" : "text-red-400"}`}>
+                {selectedBranch.isActive !== false ? "نشط ومستمر" : "معطل / مؤرشف مؤقتاً"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-555 block font-bold mb-1 font-sans">⏰ ساعات العمل والهاتف:</span>
+              <span className="text-gray-300 text-[12px] font-sans font-mono">{selectedBranch.workingHours || "08:00 ص - 11:00 م"} | {selectedBranch.phone || "غير محدد"}</span>
             </div>
           </div>
 

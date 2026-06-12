@@ -512,8 +512,11 @@ ${detailsString}
       
       {/* Upper Navigation segment controls - Enterprise modular bar (Bullet 1 & 25) */}
       <div 
-        className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl border transition-all"
-        style={{ backgroundColor: theme.surface, borderColor: theme.border }}
+        className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl border transition-all duration-300 hover:shadow-[0_0_20px_rgba(212,175,55,0.06)]"
+        style={{
+          background: `radial-gradient(circle at top right, rgba(212, 175, 55, 0.04) 0%, ${theme.card} 100%)`,
+          borderColor: theme.border
+        }}
       >
         <div className="flex flex-wrap items-center gap-1.5 order-2 md:order-1">
           <button
@@ -546,7 +549,7 @@ ${detailsString}
               activeSegment === "workflows" ? "bg-amber-500 text-black shadow" : "text-gray-400 hover:text-white"
             }`}
           >
-            ⚙️ محرك العمل الأوتوماتيكي (Workflows)
+            ⚙️ محرك العمل الأوتوماتيكية (Workflows)
           </button>
           <button
             onClick={() => setActiveSegment("integrations")}
@@ -566,9 +569,51 @@ ${detailsString}
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5 order-1 md:order-2">
-          <Cpu className="w-5 h-5 text-amber-500 animate-pulse" />
-          <span className="text-xs font-black text-white">نواة الأعمال والذكاء الموحد (Sahm Enterprise Core)</span>
+        <div className="flex items-center gap-3 order-1 md:order-2 relative z-10">
+          {/* Double-ring compliance gauge for Enterprise Core */}
+          <div className="relative w-12 h-12 flex items-center justify-center shrink-0 bg-black/45 rounded-xl border border-zinc-800/60 p-1 shadow-inner">
+            <div className="absolute inset-0">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="2.5" />
+                <circle 
+                  cx="18" 
+                  cy="18" 
+                  r="16" 
+                  fill="none" 
+                  stroke="#D4AF37" 
+                  strokeWidth="2.5" 
+                  strokeDasharray="100" 
+                  strokeDashoffset="1.1" 
+                  strokeLinecap="round"
+                  className="transition-all duration-1000 ease-out"
+                />
+              </svg>
+            </div>
+            <div className="absolute inset-1.5">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="2" />
+                <circle 
+                  cx="18" 
+                  cy="18" 
+                  r="16" 
+                  fill="none" 
+                  stroke="#10B981" 
+                  strokeWidth="2" 
+                  strokeDasharray="100" 
+                  strokeDashoffset="1.5" 
+                  strokeLinecap="round"
+                  className="transition-all duration-1000 ease-out"
+                />
+              </svg>
+            </div>
+            <div className="text-center z-10">
+              <span className="block text-[8px] font-black text-white font-mono leading-none">98.9%</span>
+            </div>
+          </div>
+          <div className="text-right">
+            <span className="text-[11px] font-black text-white block">نواة الأعمال والذكاء الموحد 🧠</span>
+            <span className="text-[8.5px] text-amber-500 block uppercase font-mono tracking-wider">Sahm Enterprise Core</span>
+          </div>
         </div>
       </div>
 

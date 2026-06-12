@@ -19,6 +19,7 @@ interface AIAnalyzerProps {
     price: string;
     image: { uri: string; base64: string; mimeType: string } | null;
   } | null) => void;
+  mode?: 'full' | 'recommendations' | 'store_analysis';
 }
 
 export default function AIAnalyzer({ 
@@ -26,10 +27,25 @@ export default function AIAnalyzer({
   products, 
   setProducts, 
   setActiveTab, 
-  setPrefillPublish 
+  setPrefillPublish,
+  mode = 'full'
 }: AIAnalyzerProps) {
   // Navigation for AI Modules
-  const [currentSubTab, setCurrentSubTab] = useState<'product_studio' | 'ceo_feed' | 'opportunities' | 'forecasting' | 'support_bot' | 'profit_health'>('product_studio');
+  const [currentSubTab, setCurrentSubTab] = useState<'product_studio' | 'ceo_feed' | 'opportunities' | 'forecasting' | 'support_bot' | 'profit_health'>(() => {
+    if (mode === 'recommendations') return 'ceo_feed';
+    if (mode === 'store_analysis') return 'profit_health';
+    return 'product_studio';
+  });
+
+  useEffect(() => {
+    if (mode === 'recommendations') {
+      setCurrentSubTab('ceo_feed');
+    } else if (mode === 'store_analysis') {
+      setCurrentSubTab('profit_health');
+    } else {
+      setCurrentSubTab('product_studio');
+    }
+  }, [mode]);
 
   // Multi-purpose States
   const [image, setImage] = useState<{ uri: string; base64: string; mimeType: string } | null>(null);
@@ -347,44 +363,98 @@ export default function AIAnalyzer({
   return (
     <div className="space-y-6 text-right dir-rtl select-text" style={{ color: theme.text }}>
       
-      {/* 🚀 Main Hub Title */}
-      <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 border-b pb-4" style={{ borderColor: theme.border }}>
-        <div className="space-y-1">
-          <div className="inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-amber-500/15 text-amber-500 text-[10px] font-extrabold border border-amber-500/20">
-            <Sparkles className="w-3.5 h-3.5 fill-amber-500 animate-spin-slow" />
-            <span>غرفة قيادة الذكاء الاصطناعي التنفيذي (AI E-commerce CEO) 🤖⚔️</span>
+      {/* 🚀 Main Hub Title with Premium Visual Upgrades */}
+      <div className="p-6 rounded-2xl border text-right space-y-4 shadow-xl relative overflow-hidden transition-all duration-300 hover:shadow-[0_0_35px_rgba(212,175,55,0.1)]" 
+        style={{
+          background: `radial-gradient(circle at top right, rgba(212, 175, 55, 0.09) 0%, rgba(13, 21, 39, 0.98) 100%)`,
+          borderColor: theme.border
+        }}>
+        <div className="absolute left-0 top-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="flex flex-col md:flex-row justify-between md:items-center gap-6 relative z-10">
+          <div className="flex items-center gap-4 text-right">
+            {/* Double-ring AI Insights Gauge */}
+            <div className="relative w-20 h-20 flex items-center justify-center shrink-0 bg-slate-950/80 rounded-2xl border border-zinc-800 p-2 shadow-inner">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  {/* Outer Gauge: 94.8% */}
+                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(212, 175, 55, 0.05)" strokeWidth="2" />
+                  <circle 
+                    cx="18" 
+                    cy="18" 
+                    r="15.5" 
+                    fill="none" 
+                    stroke="#D4AF37" 
+                    strokeWidth="2.0" 
+                    strokeDasharray="97.39" 
+                    strokeDashoffset="5.06" 
+                    strokeLinecap="round"
+                  />
+                  {/* Inner Gauge: 91.2% */}
+                  <circle cx="18" cy="18" r="11.5" fill="none" stroke="rgba(16, 185, 129, 0.05)" strokeWidth="2" />
+                  <circle 
+                    cx="18" 
+                    cy="18" 
+                    r="11.5" 
+                    fill="none" 
+                    stroke="#10B981" 
+                    strokeWidth="2.0" 
+                    strokeDasharray="72.26" 
+                    strokeDashoffset="6.36" 
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+              <div className="text-center z-10 select-none">
+                <span className="block text-[11px] font-black text-amber-400 font-mono leading-none">94.8%</span>
+                <span className="block text-[6px] text-gray-400 mt-1 leading-none">ثقة التوصيات</span>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-amber-500/15 text-amber-500 text-[10px] font-extrabold border border-amber-500/20">
+                <Sparkles className="w-3.5 h-3.5 fill-amber-500 animate-spin-slow" />
+                <span>غرفة قيادة الذكاء الاصطناعي التنفيذي (AI E-commerce CEO) 🤖⚔️</span>
+              </div>
+              <h1 className="text-xl md:text-2xl font-black tracking-tight" style={{ color: theme.text }}>
+                المدير التنفيذي للذكاء الاصطناعي والنمو (Sahm AI-Powered Executive Suite)
+              </h1>
+              <p className="text-xs text-gray-450 leading-relaxed max-w-xl">
+                تخطي كولسات الإدارة الروتينية والمحاسبة المجردة؛ استعن بأقوى وكلاء ذكاء اصطناعي لقيادة التسعير والمخزون والمبيعات والحملات تلقائياً بدقة تحليل %91.2.
+              </p>
+            </div>
           </div>
-          <h1 className="text-2xl font-black tracking-tight" style={{ color: theme.text }}>
-            المدير التنفيذي للذكاء الاصطناعي والنمو (Sahm AI-Powered Executive Suite)
-          </h1>
-          <p className="text-xs text-gray-400">
-            تخطي كولسات الإدارة الروتينية والمحاسبة المجردة؛ استعن بأقوى وكلاء ذكاء اصطناعي لقيادة التسعير والمخزون والمبيعات والحملات تلقائياً.
-          </p>
+
+          {/* Global Stats bar top */}
+          <div className="flex items-center gap-3 bg-slate-900/80 p-3 rounded-xl border border-slate-800 self-start md:self-auto shrink-0 shadow-lg">
+            <div className="text-center px-4 border-l border-slate-800 last:border-0">
+              <span className="text-[9px] text-gray-400 block font-bold">مؤشر صحة المتجر 🩺</span>
+              <span className="text-xs font-black text-amber-500 font-mono">82 / 100</span>
+            </div>
+            <div className="text-center px-4 border-l border-slate-800 last:border-0">
+              <span className="text-[9px] text-gray-400 block font-bold">قرارات مقترحة اليوم</span>
+              <span className="text-xs font-black text-emerald-400 font-mono">4 توصيات حية</span>
+            </div>
+          </div>
         </div>
 
-        {/* Global Stats bar top */}
-        <div className="flex items-center gap-3 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 self-start md:self-auto">
-          <div className="text-center px-3 border-l border-slate-800 last:border-0">
-            <span className="text-[9px] text-gray-400 block font-bold">مؤشر صحة المتجر 🩺</span>
-            <span className="text-xs font-black text-amber-500 font-mono">82 / 100</span>
-          </div>
-          <div className="text-center px-3 border-l border-slate-800 last:border-0">
-            <span className="text-[9px] text-gray-400 block font-bold">قرارات مقترحة اليوم</span>
-            <span className="text-xs font-black text-emerald-400 font-mono">4 توصيات حية</span>
-          </div>
-        </div>
+        {/* Gold gradient divider inside card */}
+        <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-[#D4AF37]/30 to-transparent my-1" />
       </div>
 
       {/* 🧭 Horizontal navigation for modules */}
       <div className="flex flex-wrap items-center gap-1.5 border-b pb-1" style={{ borderColor: theme.border }}>
         {[
-          { id: 'product_studio', label: 'استوديو المنتجات AI Product Studio 🧠✨', icon: Sparkles },
-          { id: 'ceo_feed', label: 'المدير التنفيذي والدردشة 🚀', icon: MessageSquare },
-          { id: 'opportunities', label: 'الفرص والتسعير الرشيق 📈', icon: TrendingUp },
-          { id: 'forecasting', label: 'التنبؤ والمخزون والزكاة 🕋', icon: Calendar },
-          { id: 'support_bot', label: 'الرد التلقائي وخدمة العملاء 💬', icon: ShieldAlert },
-          { id: 'profit_health', label: 'مركز الأرباح وصحة المتجر 💎', icon: Award },
-        ].map((subTab) => {
+          { id: 'product_studio', label: 'استوديو المنتجات AI Product Studio 🧠✨', icon: Sparkles, roles: ['full'] },
+          { id: 'ceo_feed', label: 'توصيات المدير التنفيذي والدردشة 🚀', icon: MessageSquare, roles: ['full', 'recommendations'] },
+          { id: 'opportunities', label: 'فرص الأرباح والتسعير الرشيق 📈', icon: TrendingUp, roles: ['full', 'recommendations'] },
+          { id: 'forecasting', label: 'التنبؤ والمبيعات والزكاة 🕋', icon: Calendar, roles: ['full', 'store_analysis'] },
+          { id: 'support_bot', label: 'الرد التلقائي وصحة العملاء 💬', icon: ShieldAlert, roles: ['full', 'store_analysis'] },
+          { id: 'profit_health', label: 'مركز الأرباح وصحة المتجر 💎', icon: Award, roles: ['full', 'store_analysis'] },
+        ].filter(item => {
+          if (!mode || mode === 'full') return true;
+          return item.roles.includes(mode);
+        }).map((subTab) => {
           const Icon = subTab.icon;
           const isActive = currentSubTab === subTab.id;
           return (
@@ -874,78 +944,33 @@ export default function AIAnalyzer({
               </div>
 
               {/* Competitor Spy Tracking Simulator (Right 5-columns) */}
-              <div className="lg:col-span-5 p-5 rounded-2xl border space-y-4" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                <div className="flex items-center gap-2 border-b pb-2.5" style={{ borderColor: theme.border }}>
-                  <Eye className="w-4.5 h-4.5 text-[#EF4444]" />
-                  <div>
-                    <h3 className="text-xs font-black text-white">مراقبة ورصد المنافسين بالخليج (Competitor Radar)</h3>
-                    <p className="text-[9px] text-gray-400 mt-0.5">رصد فوري ذكي لتغير أسعار المتاجر وعروض المنافسين المماثلة</p>
+              <div className="lg:col-span-5 p-5 rounded-2xl border space-y-4 flex flex-col justify-between" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 border-b pb-2.5" style={{ borderColor: theme.border }}>
+                    <Eye className="w-4.5 h-4.5 text-[#EF4444]" />
+                    <div>
+                      <h3 className="text-xs font-black text-white">تحليل مقارنة الأسعار (Pricing Competitor Audit)</h3>
+                      <p className="text-[9px] text-gray-400 mt-0.5">رصد فوري ذكي لتغير أسعار المتاجر وتنافسية عروض المنتجات</p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-red-950/20 border border-red-500/20 rounded-xl space-y-2 text-right relative overflow-hidden">
+                    <p className="text-xs font-black text-red-300">🚨 تم رصد نشاط ترويجي من المنافسين</p>
+                    <p className="text-[10px] text-gray-300 leading-relaxed font-bold">
+                      أطلق "متجر النخبة للعود" حملة خصومات حية معلنة للتأثير على مبيعات قنوات العود بالمنطقة.
+                    </p>
                   </div>
                 </div>
 
-                <div className="space-y-3.5 text-right font-sans">
-                  
-                  {/* Competitor list */}
-                  <div className="space-y-2">
-                    {/* Rival 1 */}
-                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-850 flex justify-between items-center gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-xs font-bold text-gray-200">متجر النخبة للعود</span>
-                        <div className="flex gap-2 text-[9px] text-gray-500">
-                          <span>سعر التولة: 365 ر.س</span>
-                          <span className="text-[#EF4444] font-bold">تعديل قبل ساعة (-10)</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] bg-red-500/10 text-[#EF4444] font-bold py-0.5 px-2 rounded-full border border-red-500/20">
-                        متحفز ومنافس 🚨
-                      </span>
-                    </div>
-
-                    {/* Rival 2 */}
-                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-850 flex justify-between items-center gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-xs font-bold text-gray-200">مراسيم الخليج</span>
-                        <div className="flex gap-2 text-[9px] text-gray-500">
-                          <span>سعر التولة: 340 ر.س</span>
-                          <span className="text-emerald-400 font-bold">ثابت منذ 15 يوماً</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-bold py-0.5 px-2 rounded-full border border-emerald-500/20">
-                        مستقر بالكامل ✓
-                      </span>
-                    </div>
-
-                    {/* Rival 3 */}
-                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-850 flex justify-between items-center gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-xs font-bold text-gray-200">أريج المنافس بالدمام</span>
-                        <div className="flex gap-2 text-[9px] text-gray-500">
-                          <span>سعر التولة: 390 ر.س</span>
-                          <span className="text-amber-500 font-bold">أطلق عرض 'اشتر 2 واحصل على 1' 🎁</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] bg-amber-500/10 text-amber-500 font-bold py-0.5 px-2 rounded-full border border-amber-500/20">
-                        حملة هجومية نشطة
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Pricing Defensive Suggestion */}
-                  <div className="p-3.5 bg-slate-950 rounded-xl border border-amber-500/10 space-y-1">
-                    <span className="text-[10px] text-amber-500 font-black flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5 fill-amber-500" />
-                      <span>اقتراح رد الفعل التكتيكي من الذكاء الاصطناعي:</span>
-                    </span>
-                    <p className="text-[10px] text-gray-400 leading-relaxed pt-0.5">
-                      "ننصح بعدم الانجرار إلى حفل حرق السعر التدميري لمتجر النخبة. بدلاً من ذلك، ثبّت سعر تولة دهن عود كلمنتان عند <span className="text-white font-bold">350 ريال</span>، وقم بتفعيل عرض ذكي مدمج تلقائياً: <span className="text-amber-400 font-bold">'شحن مجاني فوري مع مبخرة سيراميك هدية'</span>؛ هذا يمنحك قيمة مضافة تسرق الزبون بجدارة!"
-                    </p>
-                    <button
-                      onClick={() => alert("🎁 تم تفعيل عرض حزمة الضيافة والخصم الترويجي المدمج بنجاح!")}
-                      className="py-1 px-2.5 bg-amber-500 text-black text-[9px] font-bold rounded mt-2 cursor-pointer transition-colors"
-                    >
-                      تفعيل باقة العرض الدفاعية بالمتجر
-                    </button>
-                  </div>
+                <div className="pt-3">
+                  <button
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent("sahm_navigate_command_center", { detail: { subTab: "competitors" } }));
+                    }}
+                    className="w-full py-2.5 bg-red-500/20 hover:bg-red-500/30 text-rose-300 hover:text-white rounded-xl text-xs font-black cursor-pointer transition-all border border-red-500/20 flex items-center justify-center gap-1.5"
+                  >
+                    <span>تحليل سعر المنافس 📡</span>
+                  </button>
                 </div>
               </div>
 

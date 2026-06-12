@@ -173,7 +173,8 @@ export default function FacilitySetup({
           address: branchAddress.trim(),
           manager: branchManager.trim() || "مدير فرع العليا",
           phone: branchPhone.trim() || "0500000000",
-          storeId: branchStoreId || activeStoreId || "store_1",
+          storeId: branchStoreId || storeId || activeStoreId || "store_1",
+          store_id: branchStoreId || storeId || activeStoreId || "store_1",
           status: branchStatus,
           isActive: branchStatus === "نشط",
           associatedWh: whName ? `wh_${Date.now().toString().slice(-4)}` : "" // populated later
@@ -204,7 +205,8 @@ export default function FacilitySetup({
           type: whType,
           status: whStatus,
           isActive: whStatus === "نشط",
-          store_id: activeStoreId || "store_1"
+          storeId: defStoreId || storeId || activeStoreId || "store_1",
+          store_id: defStoreId || storeId || activeStoreId || "store_1"
         };
         const created = await warehouseService.create(newWh as any);
         onWarehouseCreated(created);
@@ -226,8 +228,11 @@ export default function FacilitySetup({
         if (bId && wId) {
           const targetBranch = branches.find(b => b.id === bId);
           if (targetBranch) {
-            const updatedBranch = { ...targetBranch, associatedWh: wId };
-            await branchService.create(updatedBranch);
+            let updatedBranch = await branchService.update(bId, { associatedWh: wId });
+            if (!updatedBranch) {
+              const fallback = { ...targetBranch, associatedWh: wId };
+              updatedBranch = await branchService.create(fallback);
+            }
             onBranchCreated(updatedBranch);
             
             triggerNotification("✓ تم ربط الفرع بالمستودع الإمدادي وتزامن الأرصدة بنجاح", "success");
@@ -241,14 +246,17 @@ export default function FacilitySetup({
       if (currentStep === 6) {
         if (!posName.trim()) throw new Error("يرجى تسمية جهاز الكاشير POS");
         
-        const defaultBranch = posBranchId || linkBranchId || (branches[0] ? branches[0].id : "branch_1");
-        const defaultWh = posWarehouseId || linkWarehouseId || (warehouses[0] ? warehouses[0].id : "wh_1");
+        const defaultBranch = posBranchId || linkBranchId || (branches[0] ? branches[0].id : "branch_riyadh_main");
+        const defaultWh = posWarehouseId || linkWarehouseId || (warehouses[0] ? warehouses[0].id : "warehouse_1");
 
+        const targetStore = defStoreId || storeId || activeStoreId || "store_1";
         const newPos = {
           id: `pos_${Date.now().toString().slice(-4)}`,
           name: posName.trim(),
           branchId: defaultBranch,
           warehouseId: defaultWh,
+          storeId: targetStore,
+          store_id: targetStore,
           cashier: posCashier.trim() || "كاشير مناوب",
           status: posStatus,
           isActive: posStatus === "نشط",
@@ -268,8 +276,8 @@ export default function FacilitySetup({
       if (currentStep === 7) {
         // Enforce application defaults setting
         const sId = defStoreId || activeStoreId || (stores[0] ? stores[0].id : "store_1");
-        const bId = defBranchId || (branches[0] ? branches[0].id : "branch_1");
-        const wId = defWarehouseId || (warehouses[0] ? warehouses[0].id : "wh_1");
+        const bId = defBranchId || (branches[0] ? branches[0].id : "branch_riyadh_main");
+        const wId = defWarehouseId || (warehouses[0] ? warehouses[0].id : "warehouse_1");
         const pId = defPosId || (posUnits[0] ? posUnits[0].id : "pos_1");
 
         // Set the active env variables

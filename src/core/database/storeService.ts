@@ -4,13 +4,15 @@ import { SahmDatabaseService } from "./dbService";
 const LS_KEY = "sahm_web_stores";
 
 const getMode = () => {
-  return (import.meta as any).env?.VITE_DATA_MODE || (typeof localStorage !== "undefined" && localStorage.getItem("sahm_supabase_connected") === "true" ? "production" : "demo");
+  const mode = import.meta.env.VITE_DATA_MODE;
+  if (mode === "supabase" || mode === "production") return "production";
+  return "demo";
 };
 
 export const storeService = {
   getAll: async (): Promise<StoreProfile[]> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.getStores();
     }
     try {
@@ -28,7 +30,7 @@ export const storeService = {
 
   create: async (item: StoreProfile): Promise<StoreProfile> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveStore(item);
     }
     try {
@@ -49,6 +51,10 @@ export const storeService = {
   },
 
   delete: async (id: string): Promise<boolean> => {
+    const db = SahmDatabaseService.getInstance();
+    if (getMode() === "production") {
+      return db.deleteStore(id);
+    }
     try {
       const saved = localStorage.getItem(LS_KEY);
       if (saved) {

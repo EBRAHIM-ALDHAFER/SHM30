@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { ThemeColors, User, AddressProfile } from "../types";
 import { integrationsService } from "../core/database/integrationsService";
+import { SahmDatabaseService } from "../core/database/dbService";
 import { 
   LogOut, Store, Smartphone, Palette, Bell, Volume2, Landmark, ShieldCheck, Heart, Database, Download, Upload,
   Users as UsersIcon, UserPlus, Trash2, Edit2, Shield, Link, CheckCircle2, XCircle, Wifi, WifiOff, RefreshCw, Globe,
-  Clock, Activity, Plus, PlusCircle, Sparkles, ShieldAlert, Copy, MapPin
+  Clock, Activity, Plus, PlusCircle, Sparkles, ShieldAlert, Copy, MapPin, Eye, EyeOff, Search, Filter, Mail, Phone,
+  CreditCard
 } from "lucide-react";
 import ThemeStudioMarketplace from "./ThemeStudioMarketplace";
 import SaaSSubscriptionEngine from "./SaaSSubscriptionEngine";
@@ -15,6 +17,14 @@ import ImageUploader from "./ImageUploader";
 import NationalAddressForm from "./NationalAddressForm";
 import SahmIntegrationsHub from "./SahmIntegrationsHub";
 import { sahmIconPngUrl, sahmMiniMarkPngUrl } from "../assets/brand/sahm-brand-assets";
+import { getMediaCenterFiles, saveMediaCenterFiles } from "../utils/safeStorage";
+import { 
+  saveCustomIcon, 
+  resetCustomIcon, 
+  getActiveIconValue, 
+  CustomIconRenderer, 
+  AVAILABLE_LIBRARY_ICONS 
+} from "../lib/customIcons";
 
 interface SettingsProps {
   themeKey: string;
@@ -52,6 +62,7 @@ interface SettingsProps {
   addAuditLog?: (event: string, text: string) => void;
   onboardingTrigger?: () => void;
   onOpenStoreManager?: () => void;
+  onOpenHRTab?: () => void;
   initialSubTab?: string;
   storesList?: any[];
   branchesList?: any[];
@@ -95,6 +106,7 @@ export default function Settings({
   addAuditLog = () => {},
   onboardingTrigger = () => {},
   onOpenStoreManager = () => {},
+  onOpenHRTab = () => {},
   initialSubTab = "general",
   storesList = [],
   branchesList = [],
@@ -103,13 +115,21 @@ export default function Settings({
 }: SettingsProps) {
 
   // Sub-tabs navigation state inside Settings
-  const [settingsTab, setSettingsTab] = useState<"general" | "theme" | "subscription" | "audit" | "backup" | "media">("general");
+  const [settingsTab, setSettingsTab] = useState<"general" | "theme" | "subscription" | "audit" | "backup" | "media" | "icons">("general");
+
+  const isPlatformOwner = !!(user && (user.role === "platform_owner" || user.role === "system_owner" || user.role === "system_admin"));
 
   useEffect(() => {
-    if (initialSubTab === "media") {
+    if (!isPlatformOwner && settingsTab !== "general") {
+      setSettingsTab("general");
+    }
+  }, [isPlatformOwner, settingsTab]);
+
+  useEffect(() => {
+    if (initialSubTab === "media" && isPlatformOwner) {
       setSettingsTab("media");
     }
-  }, [initialSubTab]);
+  }, [initialSubTab, isPlatformOwner]);
 
   // Theme Builder Local Configuration States
   const [localCustomTheme, setLocalCustomTheme] = useState<any>(() => {
@@ -136,103 +156,111 @@ export default function Settings({
   };
 
   // --- Supabase Real-time Cloud Migration & SQL Engine States (Bullet 18 & 17) ---
-  const [supabaseUrl, setSupabaseUrl] = useState(() => localStorage.getItem("sahm_supabase_url") || "");
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => localStorage.getItem("sahm_supabase_anon_key") || "");
-  const [isMigratingToSupabase, setIsMigratingToSupabase] = useState(false);
-  const [supabaseMigrationLogs, setSupabaseMigrationLogs] = useState<string[]>([]);
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState(() => {
-    return localStorage.getItem("sahm_supabase_connected") === "true";
+  const [isStrictSupabase] = useState(() => {
+    const mode = import.meta.env.VITE_DATA_MODE;
+    return mode === "supabase" || mode === "production";
   });
 
-  const handleStartSupabaseMigration = () => {
-    if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) {
-      alert("⚠️ يرجى إدخال عنوان خادم Supabase ومفتاح الوصول (Anon Key) أولاً.");
-      return;
-    }
-
-    setIsMigratingToSupabase(true);
-    setSupabaseMigrationLogs([]);
-
-    const logSteps = [
-      "🔄 [سهم] جارٍ تهيئة معالج النقل والربط السحابي الموحد...",
-      "📡 [سهم] فحص مستويات الوصول من خوادم سهم في الرياض لخادم Supabase الخاص بك...",
-      "⚡ [سهم] تم الاتصال بنجاح! وقت الاستجابة: 24ms. تهيئة بيئة العمل...",
-      "🛠️ [سهم] بناء وتحليل مخطط الجداول (Postgres Schemas):",
-      "   -> جدول المنتجات (products) : تم الفحص والمزامنة...",
-      "   -> جدول العملاء (customers) : تم الفحص والمزامنة...",
-      "   -> جدول الفواتير والقيود (invoices) : تم الفحص والمزامنة...",
-      "   -> جدول سجلات التدقيق (audit_logs) : تم الفحص والمزامنة...",
-      "📦 [سهم] ترحيل السجلات المحلية والـ LocalState إلى جداول PostgreSQL حية...",
-      "🟢 [سهم] مبروك! تم الربط السحابي ونقل كامل البيانات بنجاح بنسبة 100%! تم التحول إلى وضع Supabase DB."
-    ];
-
-    logSteps.forEach((log, index) => {
-      setTimeout(() => {
-        setSupabaseMigrationLogs(prev => [...prev, log]);
-        if (index === logSteps.length - 1) {
-          setIsMigratingToSupabase(false);
-          setIsSupabaseConnected(true);
-          localStorage.setItem("sahm_supabase_url", supabaseUrl);
-          localStorage.setItem("sahm_supabase_anon_key", supabaseAnonKey);
-          localStorage.setItem("sahm_supabase_connected", "true");
-          triggerNotification("تم ربط قاعدة بيانات Supabase وترحيل السجلات بنجاح! 🔒", "security");
-          addAuditLog("اتصال Supabase", "تم إطلاق الخادم السحابي المشترك وترحيل كافة الفواتير والمنتجات لـ PostgreSQL");
-        }
-      }, (index + 1) * 700);
-    });
-  };
-
-  const handleDisconnectSupabase = () => {
-    if (confirm("هل أنت متأكد من قطع الاتصال بقاعدة بيانات Supabase والرجوع لوضع التخزين المحلي المؤمن؟")) {
-      setIsSupabaseConnected(false);
-      setSupabaseMigrationLogs([]);
-      localStorage.removeItem("sahm_supabase_connected");
-      triggerNotification("تم قطع اتصال قاعدة البيانات الرجعية السحابية.", "alert");
-      addAuditLog("قطع اتصال Supabase", "تم إيقاف تفعيل المزامنة الفورية وتحويل وضع تخزين البيانات افتراضياً");
-    }
-  };
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+  const isSupabaseConnected = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+  const isMigratingToSupabase = false;
+  const supabaseMigrationLogs: string[] = [];
 
   // --- SaaS Plan Pricing Upgrades Model ---
   const [showSubscriptionPlanModal, setShowSubscriptionPlanModal] = useState(false);
 
   // User Management local states (تعدد المستخدمين والتحكم بالصلاحيات آلياً)
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [editingUserId, setEditingUserId] = useState<string | number | null>(null);
   const [formName, setFormName] = useState("");
   const [formUsername, setFormUsername] = useState("");
-  const [formRole, setFormRole] = useState<string>("كاشير");
+  const [formRole, setFormRole] = useState<string>("cashier");
   const [userImageUrl, setUserImageUrl] = useState<string | undefined>(undefined);
   const [userAddressProfile, setUserAddressProfile] = useState<AddressProfile | undefined>(undefined);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [formCompany, setFormCompany] = useState("");
+  const [formEmail, setFormEmail] = useState("");
+  const [formPhone, setFormPhone] = useState("");
+  const [formPassword, setFormPassword] = useState("");
+  const [formConfirmPassword, setFormConfirmPassword] = useState("");
+  const [formStatus, setFormStatus] = useState<"active" | "disabled" | "pending">("active");
+  const [formEmailVerified, setFormEmailVerified] = useState(false);
+  const [formMustChangePassword, setFormMustChangePassword] = useState(false);
+
+  // Scope ranges
+  const [formAllowedStoreIds, setFormAllowedStoreIds] = useState<string[]>(["store_1"]);
+  const [formAllowedBranchIds, setFormAllowedBranchIds] = useState<string[]>([]);
+  const [formAllowedWarehouseIds, setFormAllowedWarehouseIds] = useState<string[]>([]);
+  const [formAllowedPosIds, setFormAllowedPosIds] = useState<string[]>([]);
+  const [formPermissions, setFormPermissions] = useState<string[]>([]);
+
+  // Search and filter inputs
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userFilterRole, setUserFilterRole] = useState("");
+  const [userFilterStatus, setUserFilterStatus] = useState("");
+  const [formShowPassword, setFormShowPassword] = useState(false);
+
+  // Fallback / legacy compatibility fields
+  const [formCompany, setFormCompany] = useState("مجموعة مراسيم القابضة");
   const [formStoreId, setFormStoreId] = useState("");
   const [formBranchId, setFormBranchId] = useState("");
   const [formWarehouseId, setFormWarehouseId] = useState("");
   const [formPosId, setFormPosId] = useState("");
-  const [formPermissions, setFormPermissions] = useState<string[]>([]);
 
   const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
-    "مالك": [
-      "workspace:view_all", "workspace:switch", "branch:view", "branch:manage", 
-      "pos:access", "pos:sell", "inventory:view", "inventory:manage"
+    tenant_owner: [
+      "users:view", "users:create", "users:update", "users:disable", "roles:manage",
+      "pos:access", "pos:sell", "pos:settings:manage", "inventory:view", "inventory:manage",
+      "products:view", "products:manage", "reports:view", "finance:view", "settings:manage",
+      "workspace:view_all", "workspace:switch", "branch:view", "branch:manage"
     ],
-    "مدير": [
-      "workspace:switch", "branch:view", "branch:manage", 
-      "pos:access", "pos:sell", "inventory:view", "inventory:manage"
+    admin: [
+      "users:view", "users:create", "users:update", "users:disable", "roles:manage",
+      "pos:access", "pos:sell", "pos:settings:manage", "inventory:view", "inventory:manage",
+      "products:view", "products:manage", "reports:view", "finance:view", "settings:manage",
+      "workspace:switch", "branch:view", "branch:manage"
     ],
-    "مشرف": [
-      "branch:view", "pos:access", "pos:sell", "inventory:view", "inventory:manage"
+    branch_manager: [
+      "pos:access", "pos:sell", "inventory:view", "inventory:manage",
+      "products:view", "branch:view"
     ],
-    "كاشير": [
-      "pos:access", "pos:sell", "branch:view", "inventory:view"
+    inventory_manager: [
+      "inventory:view", "inventory:manage", "products:view", "branch:view"
     ],
-    "موظف مخزون": [
-      "inventory:view", "inventory:manage", "branch:view"
+    cashier: [
+      "pos:access", "pos:sell", "products:view", "inventory:view"
     ],
-    "دعم": [
-      "branch:view", "pos:access", "inventory:view"
-    ]
+    accountant: [
+      "finance:view", "reports:view", "products:view", "inventory:view", "branch:view"
+    ],
+    marketer: [
+      "products:view", "pos:access", "reports:view"
+    ],
+    support: [
+      "products:view", "inventory:view", "branch:view"
+    ],
+    custom: []
+  };
+
+  const ROLE_TRANSLATIONS: Record<string, string> = {
+    tenant_owner: "مالك النظام (Owner)",
+    admin: "مدير النظام (Admin)",
+    branch_manager: "مدير فرع (Branch Manager)",
+    inventory_manager: "مدير مخزون (Inventory Manager)",
+    cashier: "كاشير (Cashier)",
+    accountant: "محاسب (Accountant)",
+    marketer: "مسوّق (Marketer)",
+    support: "موظف دعم (Support)",
+    custom: "مستخدم مخصص (Custom)",
+    // legacy backups
+    "مالك": "مالك النظام (Owner)",
+    "مدير": "مدير النظام (Admin)",
+    "مشرف": "مدير فرع (Branch Manager)",
+    "كاشير": "كاشير (Cashier)",
+    "موظف مخزون": "مدير مخزون (Inventory Manager)",
+    "دعم": "موظف دعم (Support)",
+    "محاسب": "محاسب (Accountant)"
   };
 
   const handleRoleChange = (role: string) => {
@@ -273,6 +301,21 @@ export default function Settings({
       return;
     }
 
+    if (!formEmail.trim() || !formPhone.trim()) {
+      setErrorMsg("البريد الإلكتروني ورقم الجوال مطلوبان لحفظ الحساب!");
+      return;
+    }
+
+    if (editingUserId === null && !formPassword) {
+      setErrorMsg("كلمة المرور إلزامية لإضافة مستخدم جديد!");
+      return;
+    }
+
+    if (formPassword && formPassword !== formConfirmPassword) {
+      setErrorMsg("تأكيد كلمة المرور غير متطابق!");
+      return;
+    }
+
     const checkDuplicate = (users || []).find(
       u => u.username.toLowerCase().trim() === formUsername.toLowerCase().trim() && u.id !== editingUserId
     );
@@ -281,27 +324,82 @@ export default function Settings({
       return;
     }
 
+    // Verify permission authority: user cannot grant permissions beyond their own
+    const myPermissions = user.permissions || [];
+    const isOwner = user.role === "tenant_owner" || user.role === "مالك";
+    if (!isOwner) {
+      const unauthorizedGranted = formPermissions.filter(p => !myPermissions.includes(p));
+      if (unauthorizedGranted.length > 0) {
+        setErrorMsg("أمن النظام المالي والهيكلي يمنعك من منح صلاحيات أعلى من صلاحياتك الحالية!");
+        return;
+      }
+    }
+
+    // Secondary security policy: primary administrator checks
+    if (editingUserId === 1 || editingUserId === "1") {
+      if (formStatus !== "active") {
+        setErrorMsg("لا يمكن إيقاف أو تعطيل صلاحيات حساب مدير النظام الأساسي!");
+        return;
+      }
+    }
+
     const avatar = formName.trim().charAt(0).toUpperCase();
+    const timestamp = new Date().toISOString();
 
     if (editingUserId !== null) {
-      // Edit
+      // Edit mode
       const updated = (users || []).map(u => {
         if (u.id === editingUserId) {
-          const updatedUser = { 
+          const oldStatus = u.status || "active";
+          if (oldStatus !== formStatus) {
+            addAuditLog?.("حالة مستخدم", `تم تعديل حالة المستخدم [${formName}] من [${oldStatus === "active" ? "نشط" : oldStatus === "disabled" ? "موقوف" : "بانتظار التفعيل"}] إلى [${formStatus === "active" ? "نشط" : formStatus === "disabled" ? "موقوف" : "بانتظار التفعيل"}]`);
+          }
+          if (formPassword && u.password !== formPassword) {
+            addAuditLog?.("تغيير كلمة مرور", `تم تعديل كلمة المرور للمستخدم [${formName}]`);
+          }
+          if (JSON.stringify(u.permissions || []) !== JSON.stringify(formPermissions)) {
+            addAuditLog?.("تغيير صلاحيات", `تمت إعادة جدولة الصلاحيات التفصيلية للمستعمل [${formName}]`);
+          }
+
+          const updatedUser: User = { 
             ...u, 
+            fullName: formName,
             name: formName, 
             username: formUsername, 
+            email: formEmail,
+            phone: formPhone,
             role: formRole, 
+            status: formStatus,
+            emailVerified: formEmailVerified,
+            mustChangePassword: formMustChangePassword,
+            allowedStoreIds: formAllowedStoreIds,
+            allowedBranchIds: formAllowedBranchIds,
+            allowedWarehouseIds: formAllowedWarehouseIds,
+            allowedPosIds: formAllowedPosIds,
+            permissions: formPermissions,
             avatar, 
             imageUrl: userImageUrl, 
             addressProfile: userAddressProfile,
             company: formCompany,
-            storeId: formStoreId,
-            branchId: formBranchId,
-            warehouseId: formWarehouseId,
-            posId: formPosId,
-            permissions: formPermissions
+            
+            // compatibility fields
+            storeId: formAllowedStoreIds[0] || "",
+            branchId: formAllowedBranchIds[0] || "",
+            warehouseId: formAllowedWarehouseIds[0] || "",
+            posId: formAllowedPosIds[0] || "",
+            allowedStores: formAllowedStoreIds,
+            allowedBranches: formAllowedBranchIds,
+            allowedWarehouses: formAllowedWarehouseIds,
+            allowedPosUnits: formAllowedPosIds,
           };
+
+          if (formPassword) {
+            updatedUser.password = formPassword;
+            updatedUser.passwordHash = formPassword;
+          }
+
+          addAuditLog?.("تعديل مستخدم", `تم تعديل وتطبيق خصائص الحساب للمستخدم: [${formName}]`);
+
           if (u.id === user.id) {
             localStorage.setItem("sahm_web_user", JSON.stringify(updatedUser));
           }
@@ -310,36 +408,66 @@ export default function Settings({
         return u;
       });
       setUsers?.(updated);
+      triggerNotification?.("تم تحديث معلومات الموظف بنجاح 💾", "success");
     } else {
-      // Add
-      const newId = (users || []).length > 0 ? Math.max(...(users || []).map(u => u.id)) + 1 : 1;
+      // Create mode
+      const newId = (users || []).length > 0 ? String(Math.max(...(users || []).map(u => typeof u.id === 'number' ? u.id : parseInt(String(u.id)) || 0)) + 1) : "6";
       const newUser: User = {
         id: newId,
+        fullName: formName,
         name: formName,
         username: formUsername,
-        role: formRole,
-        avatar,
-        imageUrl: userImageUrl,
+        email: formEmail,
+        phone: formPhone,
+        password: formPassword,
+        passwordHash: formPassword,
+        role: formRole, 
+        status: formStatus,
+        emailVerified: formEmailVerified,
+        mustChangePassword: formMustChangePassword,
+        allowedStoreIds: formAllowedStoreIds,
+        allowedBranchIds: formAllowedBranchIds,
+        allowedWarehouseIds: formAllowedWarehouseIds,
+        allowedPosIds: formAllowedPosIds,
+        permissions: formPermissions,
+        avatar, 
+        imageUrl: userImageUrl, 
         addressProfile: userAddressProfile,
         company: formCompany,
-        storeId: formStoreId,
-        branchId: formBranchId,
-        warehouseId: formWarehouseId,
-        posId: formPosId,
-        permissions: formPermissions
+        createdAt: timestamp,
+        createdBy: user.fullName || user.name || "المدير العام",
+        
+        // compatibility fields
+        storeId: formAllowedStoreIds[0] || "",
+        branchId: formAllowedBranchIds[0] || "",
+        warehouseId: formAllowedWarehouseIds[0] || "",
+        posId: formAllowedPosIds[0] || "",
+        allowedStores: formAllowedStoreIds,
+        allowedBranches: formAllowedBranchIds,
+        allowedWarehouses: formAllowedWarehouseIds,
+        allowedPosUnits: formAllowedPosIds,
       };
+
       setUsers?.([...(users || []), newUser]);
+      addAuditLog?.("إنشاء مستخدم", `جرى إدراج مستخدم جديد بالمنظومة [${formName}] برتبة [${ROLE_TRANSLATIONS[formRole] || formRole}]`);
+      triggerNotification?.("تم إدراج المستخدم الجديد وتنظيم نطاق الصلاحيات.", "success");
     }
 
     // Reset Form
     setFormName("");
     setFormUsername("");
-    setFormRole("كاشير");
-    setFormCompany("");
-    setFormStoreId("");
-    setFormBranchId("");
-    setFormWarehouseId("");
-    setFormPosId("");
+    setFormEmail("");
+    setFormPhone("");
+    setFormPassword("");
+    setFormConfirmPassword("");
+    setFormRole("cashier");
+    setFormStatus("active");
+    setFormEmailVerified(false);
+    setFormMustChangePassword(false);
+    setFormAllowedStoreIds(["store_1"]);
+    setFormAllowedBranchIds([]);
+    setFormAllowedWarehouseIds([]);
+    setFormAllowedPosIds([]);
     setFormPermissions([]);
     setUserImageUrl(undefined);
     setUserAddressProfile(undefined);
@@ -348,7 +476,7 @@ export default function Settings({
 
     // Trigger sweet reload if self edited
     if (editingUserId === user.id) {
-      triggerNotification("لقد قمت بتعديل حسابك الشخصي؛ سيتم تحديث الصلاحيات وبيئة العمل فوراً! 🔄", "success");
+      triggerNotification?.("لقد قمت بتعديل حسابك الشخصي؛ سيتم تحديث الصلاحيات وبيئة العمل فوراً! 🔄", "success");
       setTimeout(() => {
         window.location.reload();
       }, 1000);
@@ -357,43 +485,71 @@ export default function Settings({
 
   const handleEditClick = (u: User) => {
     setEditingUserId(u.id);
-    setFormName(u.name);
+    setFormName(u.fullName || u.name || "");
     setFormUsername(u.username);
-    setFormRole(u.role || "كاشير");
+    setFormEmail(u.email || "");
+    setFormPhone(u.phone || "");
+    setFormPassword(u.password || "");
+    setFormConfirmPassword(u.password || "");
+    setFormRole(u.role || "cashier");
+    setFormStatus(u.status || "active");
+    setFormEmailVerified(!!u.emailVerified);
+    setFormMustChangePassword(!!u.mustChangePassword);
+    setFormAllowedStoreIds(u.allowedStoreIds || (u.storeId ? [u.storeId] : ["store_1"]));
+    setFormAllowedBranchIds(u.allowedBranchIds || (u.branchId ? [u.branchId] : []));
+    setFormAllowedWarehouseIds(u.allowedWarehouseIds || (u.warehouseId ? [u.warehouseId] : []));
+    setFormAllowedPosIds(u.allowedPosIds || (u.posId ? [u.posId] : []));
+    setFormPermissions(u.permissions || DEFAULT_ROLE_PERMISSIONS[u.role || "cashier"] || []);
     setUserImageUrl(u.imageUrl);
     setUserAddressProfile(u.addressProfile);
-    setFormCompany(u.company || "");
-    setFormStoreId(u.storeId || (storesList[0]?.id || ""));
-    setFormBranchId(u.branchId || "");
-    setFormWarehouseId(u.warehouseId || "");
-    setFormPosId(u.posId || "");
-    setFormPermissions(u.permissions || DEFAULT_ROLE_PERMISSIONS[u.role || "كاشير"] || []);
+    setFormCompany(u.company || "مجموعة مراسيم القابضة");
     setShowAddForm(true);
   };
 
-  const handleDeleteUser = (userId: number) => {
+  const handleDeleteUser = (userId: string | number) => {
     if (userId === user.id) {
-      alert("⚠️ عذراً، لا يمكنك حذف حسابك الحالي الذي تستخدمه في تسجيل الدخول!");
+      triggerNotification?.("⚠️ عذراً، لا يمكنك حذف حسابك الذي تستخدمه حالياً!", "alert");
       return;
     }
-    if (userId === 1) {
-      alert("⚠️ عذراً، لا يمكن حذف حساب المدير الرئيسي للنظام لتفادي الإغلاق العشوائي.");
+    if (userId === 1 || userId === "1") {
+      triggerNotification?.("⚠️ عذراً، لا يمكن حذف حساب المدير الرئيسي المالك العام لتجنب إقفال النظام.", "alert");
       return;
     }
-    const confirmDelete = window.confirm("هل أنت متأكد من حذف هذا المستخدم والحد من وصوله للنظام نهائياً؟");
+    const matched = (users || []).find(u => u.id === userId);
+    const confirmDelete = window.confirm(`هل أنت متأكد من حذف حساب المستخدم [${matched?.fullName || matched?.name || "الموظف"}] وسحب صلاحيته نهائياً؟`);
     if (confirmDelete) {
       const updated = (users || []).filter(u => u.id !== userId);
       setUsers?.(updated);
+      addAuditLog?.("حذف مستخدم", `تمت إزالة بيانات وملف حساب الموظف [${matched?.fullName || matched?.name}] من النظام بالكامل.`);
+      triggerNotification?.("تم حذف بيانات الموظف بنجاح من قائمة الصلاحيات الشجرية.", "success");
     }
   };
 
-  const handleExportData = () => {
+  const handleExportData = async () => {
     try {
+      const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
+      let invoices = null;
+      let products = null;
+      let customers = null;
+      
+      if (isSupabase) {
+        const db = SahmDatabaseService.getInstance();
+        [invoices, products, customers] = await Promise.all([
+          db.getInvoices(),
+          db.getProducts(),
+          db.getCustomers()
+        ]);
+      } else {
+        invoices = localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : null;
+        products = localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : null;
+        customers = localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : null;
+      }
+
       const backupData = {
-        invoices: localStorage.getItem("sahm_web_invoices") ? JSON.parse(localStorage.getItem("sahm_web_invoices")!) : null,
-        products: localStorage.getItem("sahm_web_products") ? JSON.parse(localStorage.getItem("sahm_web_products")!) : null,
-        customers: localStorage.getItem("sahm_web_customers") ? JSON.parse(localStorage.getItem("sahm_web_customers")!) : null,
-        mediaFiles: localStorage.getItem("sahm_media_center_files") ? JSON.parse(localStorage.getItem("sahm_media_center_files")!) : null,
+        invoices,
+        products,
+        customers,
+        mediaFiles: getMediaCenterFiles(),
         mediaPermissions: localStorage.getItem("sahm_media_permissions") ? JSON.parse(localStorage.getItem("sahm_media_permissions")!) : null,
         store: localStorage.getItem("sahm_web_store") || "",
         theme: localStorage.getItem("sahm_web_theme") || "",
@@ -428,7 +584,7 @@ export default function Settings({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const content = e.target?.result as string;
         const backup = JSON.parse(content);
@@ -443,10 +599,30 @@ export default function Settings({
         );
         if (!confirmRestore) return;
 
-        if (backup.invoices) localStorage.setItem("sahm_web_invoices", JSON.stringify(backup.invoices));
-        if (backup.products) localStorage.setItem("sahm_web_products", JSON.stringify(backup.products));
-        if (backup.customers) localStorage.setItem("sahm_web_customers", JSON.stringify(backup.customers));
-        if (backup.mediaFiles) localStorage.setItem("sahm_media_center_files", JSON.stringify(backup.mediaFiles));
+        const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
+        if (isSupabase) {
+          const db = SahmDatabaseService.getInstance();
+          try {
+            if (backup.products && Array.isArray(backup.products)) {
+              for (const p of backup.products) await db.saveProduct(p);
+            }
+            if (backup.customers && Array.isArray(backup.customers)) {
+              for (const c of backup.customers) await db.saveCustomer(c);
+            }
+            if (backup.invoices && Array.isArray(backup.invoices)) {
+              for (const inv of backup.invoices) await db.saveInvoice(inv);
+            }
+          } catch (err: any) {
+            alert("فشل استيراد البيانات سحابياً: " + err.message);
+            return;
+          }
+        } else {
+          if (backup.invoices) localStorage.setItem("sahm_web_invoices", JSON.stringify(backup.invoices));
+          if (backup.products) localStorage.setItem("sahm_web_products", JSON.stringify(backup.products));
+          if (backup.customers) localStorage.setItem("sahm_web_customers", JSON.stringify(backup.customers));
+        }
+
+        if (backup.mediaFiles) saveMediaCenterFiles(backup.mediaFiles);
         if (backup.mediaPermissions) localStorage.setItem("sahm_media_permissions", JSON.stringify(backup.mediaPermissions));
         if (backup.store) localStorage.setItem("sahm_web_store", backup.store);
         if (backup.theme) localStorage.setItem("sahm_web_theme", backup.theme);
@@ -543,11 +719,12 @@ export default function Settings({
         {[
           { id: "general", name: "عام والربط ⚙️" },
           { id: "theme", name: "هوية تصميم برنت 🎨" },
+          { id: "icons", name: "أيقونات النظام 🎨" },
           { id: "subscription", name: "اشتراكات SaaS 💳" },
           { id: "audit", name: "الامتثال والتتبع 📜" },
           { id: "backup", name: "نسخ سحابي واحتياطي 💾" },
           { id: "media", name: "مكتبة الأصول والوسائط 📂" }
-        ].map((sb) => (
+        ].filter(sb => isPlatformOwner || sb.id === "general").map((sb) => (
           <button
             key={sb.id}
             onClick={() => setSettingsTab(sb.id as any)}
@@ -567,6 +744,52 @@ export default function Settings({
 
       {settingsTab === "general" && (
         <>
+          {!isPlatformOwner && (
+            <div className="p-5 rounded-2xl border space-y-4 mb-4" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+              <div className="flex items-center gap-2 border-b pb-3 mb-2" style={{ borderColor: theme.border }}>
+                <CreditCard className="w-4 h-4 text-amber-500" />
+                <h3 className="text-xs font-black" style={{ color: theme.text }}>اشتراك منشأتي</h3>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-right">
+                <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/60">
+                  <span className="text-[10px] text-gray-500 font-bold block mb-1">الباقة الحالية</span>
+                  <strong className="text-xs font-black text-white block">
+                    {subscription.tier === "A" ? "باقة تجريبية (Trial)" : subscription.tier === "C" ? "باقة النخبة (Enterprise Elite)" : "باقة سهم Pro الاحترافية ⚡"}
+                  </strong>
+                </div>
+                
+                <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/60">
+                  <span className="text-[10px] text-gray-500 font-bold block mb-1">استهلاك الفواتير والعمليات</span>
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-[10px] font-bold font-mono">
+                      <span className="text-gray-400">/ {subscription.limit?.toLocaleString() || "10,000"}</span>
+                      <span className="text-amber-500">{subscription.currentUsed?.toLocaleString() || "0"}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-amber-500" 
+                        style={{ width: `${Math.min(100, ((subscription.currentUsed || 0) / (subscription.limit || 10000)) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/60">
+                  <span className="text-[10px] text-gray-500 font-bold block mb-1">حالة وتاريخ التجديد</span>
+                  <div className="text-xs font-bold">
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black inline-block mb-1">نشط</span>
+                    <span className="block text-[10px] text-gray-400 font-mono">يتجدد في: {subscription.renewsAt || "2026/07/10"}</span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-gray-500 font-bold leading-relaxed">
+                ℹ️ لترقية اشتراك منشأتك أو زيادة حدود العمليات والمتاجر المتاحة، يرجى التواصل مع إدارة منصة سهم.
+              </p>
+            </div>
+          )}
+
           {/* Store identity parameters */}
           <div className="p-5 rounded-2xl border space-y-5" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
         <div className="flex items-center gap-2 border-b pb-3 mb-2" style={{ borderColor: theme.border }}>
@@ -1054,519 +1277,32 @@ export default function Settings({
         </div>
       </div>
 
-      {/* General application configurations */}
-      <div className="p-5 rounded-2xl border text-right divide-y" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        
-        {/* Currency selection */}
-        <div className="flex justify-between items-center pb-4">
-          <div className="flex items-center gap-2">
-            <Landmark className="w-4 h-4" style={{ color: theme.accent }} />
-            <span className="text-xs font-bold" style={{ color: theme.text }}>العملة والمقاييس المالية المعتمدة</span>
-          </div>
-
-          <div className="flex gap-2">
-            {["ر.س", "$", "€"].map(c => (
-              <button
-                key={c}
-                onClick={() => setCurrency(c)}
-                className="text-xs py-1.5 px-3.5 rounded-lg font-bold cursor-pointer transition-colors"
-                style={{
-                  backgroundColor: currency === c ? theme.accent : theme.surface,
-                  color: currency === c ? '#000' : theme.muted,
-                  border: `1px solid ${currency === c ? theme.accent : theme.border}`
-                }}
-              >
-                {c === 'ر.س' ? 'ريال سعودي' : c === '$' ? 'دولار أمريكي' : 'يورو'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Push notifications */}
-        <div className="flex justify-between items-center py-4">
-          <div className="flex items-center gap-2">
-            <Bell className="w-4 h-4" style={{ color: theme.accent }} />
-            <span className="text-xs font-bold" style={{ color: theme.text }}>تمكين الإشعارات الفورية والمحاسبية</span>
-          </div>
-
-          <label className="relative inline-flex items-center cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={notifications}
-              onChange={() => setNotifications(!notifications)}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-          </label>
-        </div>
-
-        {/* Build version and protection logs */}
-        <div className="flex justify-between items-center pt-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4" style={{ color: theme.accent }} />
-            <span className="text-xs font-bold" style={{ color: theme.text }}>رقم وسرية تشغيل الإصدار الحالي</span>
-          </div>
-          <span className="font-mono text-xs" style={{ color: theme.muted }}>v2.1.0 • مستقر وأمن</span>
-        </div>
-      </div>
-
-      {/* 👥 Multi-user Control (تعدد المستخدمين والتحكم بالصلاحيات الهيكلية) */}
-      <div className="p-5 rounded-2xl border space-y-5 text-right" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: theme.border }}>
-          <div className="flex items-center gap-2.5">
-            <UsersIcon className="w-4.5 h-4.5" style={{ color: theme.accent }} />
-            <div>
-              <h3 className="text-xs font-black" style={{ color: theme.text }}>إدارة المستخدمين المتعددين والصلاحيات الهيكلية</h3>
-              <p className="text-[10px] text-gray-400 mt-0.5">تفويض طاقم العمل ووضع حدود الصلاحيات للمدراء، المحاسبين، وأمناء الكاشير</p>
-            </div>
-          </div>
-          
-          {(user.role === "مدير" || user.role === "مالك") ? (
-            <button
-              onClick={() => {
-                setShowAddForm(!showAddForm);
-                setEditingUserId(null);
-                setFormName("");
-                setFormUsername("");
-                setFormRole("كاشير");
-                setErrorMsg("");
-              }}
-              className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-[10px] font-bold text-black cursor-pointer active:scale-95 transition-all animate-pulse"
-              style={{ backgroundColor: theme.accent }}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>إدراج مستخدم جديد ➕</span>
-            </button>
-          ) : (
-            <span className="text-[10px] font-bold py-1 px-2.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-550">
-              ⚠️ صلاحية عرض فقط مخصصة للرتب الإدارية العليا (رتبتك الحالية: {user.role})
+      {/* Users & Permissions Management Section */}
+      <div className="p-6 rounded-3xl border text-right space-y-4 shadow-xl text-white" 
+        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <span className="p-3 bg-amber-500/15 text-amber-500 rounded-2xl">
+              <UsersIcon className="w-6 h-6" />
             </span>
-          )}
-        </div>
-
-        {/* Expandable Form: Add / Edit User */}
-        {showAddForm && (
-          <form onSubmit={handleSaveUser} className="p-5 rounded-xl space-y-4 border animate-fade-in text-right cursor-default" style={{ backgroundColor: theme.surface, borderColor: theme.border }}>
-            <h4 className="text-xs font-black text-right" style={{ color: theme.text }}>
-              {editingUserId !== null ? "📝 تعديل بيانات المستخدم الحالي" : "👤 إدراج مستخدم جديد إلى طاقم المتجر"}
-            </h4>
-
-            {/* Added Image Uploader for User card */}
-            <ImageUploader 
-              imageUrl={userImageUrl} 
-              name={formName || "مستخدم جديد"} 
-              onChange={setUserImageUrl} 
-              theme={theme} 
-            />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-bold mb-1.5 text-right" style={{ color: theme.muted }}>• الاسم الكامل (مثال: عبدالرحمن الشهري)</label>
-                <input
-                  type="text"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder="أدخل الاسم لإنشاء بطاقة المستخدم..."
-                  className="w-full text-xs rounded-lg py-2 px-3 border outline-none text-right"
-                  style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold mb-1.5 text-right" style={{ color: theme.muted }}>• اسم المستخدم للحساب (لتسجيل الدخول)</label>
-                <input
-                  type="text"
-                  value={formUsername}
-                  onChange={(e) => setFormUsername(e.target.value)}
-                  placeholder="مثال: abdulrahman"
-                  className="w-full text-xs rounded-lg py-2 px-3 border outline-none text-right font-mono"
-                  style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Link fields: Company, Store, Branch, Warehouse, POS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border p-4 rounded-xl" style={{ borderColor: theme.border, backgroundColor: theme.card + "40" }}>
-              <div className="col-span-1 md:col-span-2">
-                <h5 className="text-[11px] font-black text-right mb-1" style={{ color: theme.accent }}>🏢 الروابط التنظيمية والهيكلية للفروع ومناطق العمل</h5>
-                <p className="text-[9px] text-gray-400">يرتبط المستخدم بالمواقع المحددة لتخصيص بيئة عمله المباشرة تلقائياً عند تسجيل الدخول</p>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold mb-1.5 text-right" style={{ color: theme.muted }}>• الشركة التابعة</label>
-                <input
-                  type="text"
-                  value={formCompany}
-                  onChange={(e) => setFormCompany(e.target.value)}
-                  placeholder="مثال: شركة مراسيم الدولية"
-                  className="w-full text-xs rounded-lg py-2 px-3 border outline-none text-right"
-                  style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold mb-1.5 text-right" style={{ color: theme.muted }}>• المتجر التابع</label>
-                <select
-                  value={formStoreId}
-                  onChange={(e) => setFormStoreId(e.target.value)}
-                  className="w-full text-xs rounded-lg py-2 px-3 border outline-none text-right cursor-pointer"
-                  style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-                >
-                  <option value="">-- غير مرتبط بمتجر محدد --</option>
-                  {storesList.map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.tradeName})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold mb-1.5 text-right" style={{ color: theme.muted }}>• الفرع المرتبط (مقيد تشغيلياً)</label>
-                <select
-                  value={formBranchId}
-                  onChange={(e) => setFormBranchId(e.target.value)}
-                  className="w-full text-xs rounded-lg py-2 px-3 border outline-none text-right cursor-pointer"
-                  style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-                >
-                  <option value="">-- غير مرتبط بفرع محدد (يرى كافة الفروع) --</option>
-                  {branchesList.map(b => (
-                    <option key={b.id} value={b.id}>{b.name} - {b.city}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold mb-1.5 text-right" style={{ color: theme.muted }}>• المستودع المرتبط (جرد وحركة مخزون)</label>
-                <select
-                  value={formWarehouseId}
-                  onChange={(e) => setFormWarehouseId(e.target.value)}
-                  className="w-full text-xs rounded-lg py-2 px-3 border outline-none text-right cursor-pointer"
-                  style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-                >
-                  <option value="">-- اختياري: غير مرتبط بمستودع محدد --</option>
-                  {warehousesList.map(w => (
-                    <option key={w.id} value={w.id}>{w.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="col-span-1 md:col-span-2">
-                <label className="block text-[10px] font-bold mb-1.5 text-right" style={{ color: theme.muted }}>• نقطة البيع المرتبطة (تفتح كاشير مالي تلقائي)</label>
-                <select
-                  value={formPosId}
-                  onChange={(e) => setFormPosId(e.target.value)}
-                  className="w-full text-xs rounded-lg py-2 px-3 border outline-none text-right cursor-pointer"
-                  style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-                >
-                  <option value="">-- اختياري: غير مرتبط بجهاز POS --</option>
-                  {posUnitsList
-                    .filter(pos => !formBranchId || pos.branchId === formBranchId)
-                    .map(pos => (
-                      <option key={pos.id} value={pos.id}>{pos.name}</option>
-                    ))}
-                </select>
-              </div>
-            </div>
-
             <div>
-              <label className="block text-[10px] font-bold mb-1.5 text-right" style={{ color: theme.muted }}>• الرتبة الوظيفية وصلاحيات الهيكل المالي</label>
-              <select
-                value={formRole}
-                onChange={(e) => handleRoleChange(e.target.value)}
-                className="w-full text-xs rounded-lg py-2 px-3 border outline-none text-right cursor-pointer font-bold"
-                style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-              >
-                <option value="مالك">👑 مالك (مالك المنشأة - صلاحيات شمولية وتبديل كامل)</option>
-                <option value="مدير">💎 مدير (المدير الإداري - تحكم عام كامل بالفروع)</option>
-                <option value="مشرف">💼 مشرف عمليات (إشراف ومتابعة مع الفروع والمستودعات)</option>
-                <option value="كاشير">🛒 كاشير مبيعات (تقييد مباشر بنقاط المبيعات)</option>
-                <option value="موظف مخزون">📦 موظف اللوجستيات والمخازن (إدارة حركة مستودع)</option>
-                <option value="دعم">🛠️ دعم فني (صلاحيات عرض تشخيصي وصيانة)</option>
-              </select>
-            </div>
-
-            {/* Custom Permissions Select List */}
-            <div className="p-4 border rounded-xl space-y-3" style={{ borderColor: theme.border, backgroundColor: theme.card + "20" }}>
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold" style={{ color: theme.text }}>🔑 تخصيص الصلاحيات التشغيلية (Permissions):</span>
-                <button
-                  type="button"
-                  onClick={() => setFormPermissions(Object.keys(DEFAULT_ROLE_PERMISSIONS).reduce((acc, k) => [...acc, ...DEFAULT_ROLE_PERMISSIONS[k]], [] as string[]).filter((v, i, self) => self.indexOf(v) === i))}
-                  className="text-[9px] font-bold underline cursor-pointer"
-                  style={{ color: theme.accent }}
-                >
-                  تحديد الكل
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-right">
-                {[
-                  { key: "workspace:view_all", label: "عرض كل المتاجر والفروع", desc: "يرى المالك البيانات الإجمالية بالكامل" },
-                  { key: "workspace:switch", label: "صلاحية تبديل الفروع (workspace:switch)", desc: "سماح للمستخدم بتبديل الفروع يدوياً" },
-                  { key: "branch:view", label: "استعراض الفرع والتقارير", desc: "فتح وقراءة الفرع المرتبط وتقاريره" },
-                  { key: "branch:manage", label: "إدارة الفروع وتهيئتها", desc: "تعديل، حذف وإضافة خصائص الفرع" },
-                  { key: "pos:access", label: "دخول واجهة الكاشير POS", desc: "تحميل تابات الفوترة ونقاط المبيعات" },
-                  { key: "pos:sell", label: "إجراء وإصدار العمليات البيعية", desc: "إتمام الدفع وطباعة الفاتورة" },
-                  { key: "inventory:view", label: "استعراض المخازن وحالة الجرد", desc: "مشاهدة مستويات المخزون والمدخلات" },
-                  { key: "inventory:manage", label: "تنفيذ التعديلات وحركة النقل", desc: "التوريد والنقل وإدارة المستودعات" }
-                ].map(p => {
-                  const checked = formPermissions.includes(p.key);
-                  return (
-                    <label key={p.key} className="flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer select-none transition-all hover:bg-white/5 text-right" style={{ borderColor: checked ? theme.accent + "50" : theme.border, backgroundColor: checked ? theme.accent + "05" : "transparent" }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormPermissions([...formPermissions, p.key]);
-                          } else {
-                            setFormPermissions(formPermissions.filter(it => it !== p.key));
-                          }
-                        }}
-                        className="mt-0.5"
-                      />
-                      <div className="flex-1">
-                        <p className="text-[10px] font-bold" style={{ color: checked ? theme.accent : theme.text }}>{p.label}</p>
-                        <p className="text-[8px] text-gray-400 mt-0.5">{p.desc}</p>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Added NationalAddressForm for User */}
-            <div className="pt-2">
-              <NationalAddressForm 
-                initialAddress={userAddressProfile} 
-                onChange={setUserAddressProfile} 
-                theme={theme} 
-              />
-            </div>
-            
-            {/* Context helper text according to role chosen */}
-            <div className="mt-2 p-2 px-3 bg-opacity-30 rounded-lg text-[9px] leading-relaxed text-gray-400 text-right" style={{ backgroundColor: theme.card }}>
-              {formRole === "مالك" && "👑 المالك العام: يتحكم بكامل المتاجر والشركات القابضة، ويمتاز بقدرته على تجاوز التقييدات التشغيلية والتنقل الفوري بين شاشات الكاشير والمخازن بكل سلاسة."}
-              {formRole === "مدير" && "🛡️ صلاحية المدير العام: يمتلك صلاحية تعديل الإعدادات المحاسبية وتعديل وضبط المستخدمين، الوصول للتقارير والتحليل الذكائي، وإعدادات الربط والتحويل بين الفروع المرخصة."}
-              {formRole === "مشرف" && "📂 رتبة المشرف: مهام الإدارة التشغيلية اليومية، المتابعة الميدانية للعمليات والكميات، والتوريد ومطابقة أرصدة الكاشيرات والمستودعات."}
-              {formRole === "كاشير" && "🔌 كاشير مبيعات: واجهة نقطة بيع POS مبسطة ومباشرة مخصصة للفرع وجهاز الكاشير الخاص به. لا يمكن تغيير الفرع ولا تصفح تقارير الإدارة العامة."}
-              {formRole === "موظف مخزون" && "📦 موظف لوجستيات: مخصص لإدارة المخزن وتعيين مستودع جرد وجدول التوريدات والتحويل المالي الميداني فقط."}
-              {formRole === "دعم" && "🛠️ دعم فني خارجي: تصفح تشخيصي لبعض اللوحات للمتابعة وحل المشكلات البينية."}
-            </div>
-
-            {errorMsg && (
-              <p className="text-[10px] text-red-400 font-bold bg-red-950/20 p-2 rounded-lg border border-red-900/30 text-center">
-                ⚠️ {errorMsg}
+              <h3 className="text-sm font-black flex items-center gap-2">
+                <span>إدارة المستخدمين والصلاحيات (HR Portal)</span>
+                <span className="text-[10px] bg-amber-500/10 text-amber-550 px-2 py-0.5 rounded font-black">محدّث مدمج</span>
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                تم نقل وترقية نظام إدارة الموظفين، مستويات الصلاحيات (RBAC)، والتحقق الميداني والعنوان الوطني الموحد إلى تبويب الموارد البشرية (HR) المستقل.
               </p>
-            )}
-
-            <div className="flex gap-2 justify-end pt-1">
-              <button
-                type="submit"
-                className="py-1.5 px-4 rounded-lg font-bold text-[10px] text-black cursor-pointer active:scale-95 transition-all"
-                style={{ backgroundColor: theme.accent }}
-              >
-                💾 حفظ بيانات المستخدم
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddForm(false);
-                  setEditingUserId(null);
-                }}
-                className="py-1.5 px-4 rounded-lg font-bold text-[10px] border cursor-pointer active:scale-95 transition-all"
-                style={{ backgroundColor: theme.card, borderColor: theme.border, color: theme.text }}
-              >
-                إلغاء
-              </button>
             </div>
-          </form>
-        )}
+          </div>
 
-        {/* Users list database representation */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(users || []).map((u) => {
-            const isMe = u.id === user.id;
-            
-            // Custom display color variables based on Role type
-            let roleBadgeClass = "";
-            let roleDesc = "";
-            if (u.role === "مالك") {
-              roleBadgeClass = "text-rose-400 bg-rose-400/10 border-rose-400/20";
-              roleDesc = "المالك العام للمنشأة وصاحب كل فروع القابضة والشركات";
-            } else if (u.role === "مدير") {
-              roleBadgeClass = "text-amber-400 bg-amber-400/10 border-amber-400/20";
-              roleDesc = "المدير الإداري العام للفروع وتعديل الإعدادات والفوترة";
-            } else if (u.role === "مشرف") {
-              roleBadgeClass = "text-indigo-400 bg-indigo-400/10 border-indigo-400/20";
-              roleDesc = "الإشراف وجرد الكميات ومطابقة أرصدة الكاشيرات والمستودعات";
-            } else if (u.role === "كاشير" || u.role === "محاسب") {
-              roleBadgeClass = "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
-              roleDesc = "نقطة البيع السريعة POS ومعالجة معاملات المبيعات اليومية";
-            } else if (u.role === "موظف مخزون") {
-              roleBadgeClass = "text-cyan-400 bg-cyan-400/10 border-cyan-400/20";
-              roleDesc = "متابعة التوريد والنقل وإدارة المستندات ومعاينة المخزن";
-            } else {
-              roleBadgeClass = "text-slate-400 bg-slate-400/10 border-slate-400/20";
-              roleDesc = "معاينة تشخيصية وفتح كاشيرات الصيانة وتدقيق المدخلات";
-            }
-
-            // Find linked company & names
-            const storeObj = storesList.find(s => s.id === u.storeId);
-            const branchObj = branchesList.find(b => b.id === u.branchId);
-            const whObj = warehousesList.find(w => w.id === u.warehouseId);
-            const posObj = posUnitsList.find(p => p.id === u.posId);
-
-            return (
-              <div 
-                key={u.id}
-                className="p-4 rounded-xl border flex flex-col justify-between gap-3 text-right group relative"
-                style={{ backgroundColor: theme.surface, borderColor: isMe ? theme.accent + "40" : theme.border }}
-              >
-                {/* Me badge */}
-                {isMe && (
-                  <span className="absolute top-2.5 left-2.5 text-[8px] font-extrabold py-0.5 px-2 rounded-full border bg-emerald-500/10 border-emerald-500/30 text-emerald-400 animate-pulse">
-                    أنت حالياً 👤
-                  </span>
-                )}
-
-                <div className="flex items-center gap-3">
-                  {u.imageUrl ? (
-                    <img 
-                      src={u.imageUrl} 
-                      alt={u.name} 
-                      referrerPolicy="no-referrer" 
-                      className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0" 
-                    />
-                  ) : u.role === "مدير" || u.role === "مالك" ? (
-                    <img 
-                      src={sahmMiniMarkPngUrl} 
-                      alt="Sahm OS Mini Mark" 
-                      className="w-10 h-10 rounded-lg object-contain border border-slate-800/85 shadow-md shrink-0 hover:scale-105 transition-transform" 
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shadow-inner shrink-0"
-                      style={{ backgroundColor: isMe ? theme.accent : theme.border, color: isMe ? "#000" : theme.text }}
-                    >
-                      {u.avatar || u.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  
-                  <div className="space-y-0.5 min-w-0 flex-1 text-right">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-xs font-black truncate" style={{ color: theme.text }}>{u.name}</h4>
-                        <span className={`text-[8px] font-extrabold py-0.5 px-2 rounded-md border shrink-0 ${roleBadgeClass}`}>
-                          {u.role}
-                        </span>
-                      </div>
-                      {u.addressProfile?.shortAddress && (
-                        <span className="text-[8px] font-mono font-black border border-amber-500/20 text-amber-550 bg-amber-500/10 px-1 rounded uppercase tracking-wider">
-                          {u.addressProfile.shortAddress}
-                        </span>
-                      )}
-                    </div>
-                    <p className="font-mono text-[9px]" style={{ color: theme.muted }}>@{u.username}</p>
-                  </div>
-                </div>
-
-                {/* Corporate links details box */}
-                {(u.company || u.storeId || u.branchId || u.warehouseId || u.posId) && (
-                  <div className="p-2.5 rounded-lg text-[9px] space-y-1 bg-black/20 border border-zinc-800/60 leading-normal text-right">
-                    <span className="text-[8px] font-black text-amber-500 block">• الارتباطات الهيكلية:</span>
-                    {u.company && <p style={{ color: theme.text }}>🏢 الشركة: <span className="font-bold">{u.company}</span></p>}
-                    {u.storeId && <p style={{ color: theme.text }}>🏬 المتجر: <span className="font-bold">{storeObj?.name || u.storeId}</span></p>}
-                    {u.branchId ? (
-                      <p style={{ color: theme.text }}>📍 الفرع المرتبط: <span className="font-bold text-sky-400">{branchObj?.name || u.branchId}</span></p>
-                    ) : (
-                      <p className="text-slate-500">📍 الفرع: <span className="italic">مفتوح (تصفح جميع الفروع)</span></p>
-                    )}
-                    {u.warehouseId && <p style={{ color: theme.text }}>📦 المستودع الفعلي: <span className="font-bold">{whObj?.name || u.warehouseId}</span></p>}
-                    {u.posId && <p style={{ color: theme.text }}>🛒 وحدة الـ POS: <span className="font-bold text-emerald-400">{posObj?.name || u.posId}</span></p>}
-                  </div>
-                )}
-
-                {/* Custom Permissions Pills List */}
-                {u.permissions && u.permissions.length > 0 && (
-                  <div className="flex flex-wrap gap-1 p-1">
-                    {u.permissions.map(perm => (
-                      <span key={perm} className="text-[8px] px-1.5 py-0.5 rounded bg-zinc-800 text-gray-300 font-mono">
-                        🔑 {perm}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Sub National Address Profile for Users */}
-                {u.addressProfile && (
-                  <div className="px-3 py-2 rounded-lg bg-slate-950/40 border border-slate-900/60 text-right space-y-1">
-                    <span className="text-[8px] text-gray-400 font-bold block">العنوان الوطني المعتمد (SPL)</span>
-                    <p className="text-[10px] text-gray-300 leading-normal font-sans">
-                      مبنى {u.addressProfile.buildingNumber}، {u.addressProfile.streetName}، {u.addressProfile.district}، {u.addressProfile.city}، الرمز البريدي {u.addressProfile.postalCode}
-                    </p>
-                    <div className="flex gap-2 justify-start pt-1">
-                      <button
-                        onClick={() => {
-                          const formatted = `العنوان الوطني للمستخدم (${u.name}): مبنى ${u.addressProfile?.buildingNumber} ${u.addressProfile?.streetName}، ${u.addressProfile?.district}، ${u.addressProfile?.city}`;
-                          navigator.clipboard.writeText(formatted);
-                          triggerNotification?.("تم نسخ عنوان المستخدم 📋");
-                        }}
-                        className="px-1.5 py-0.5 bg-zinc-900 hover:bg-zinc-800 text-[8px] rounded font-bold text-gray-400 hover:text-white transition-colors border-none cursor-pointer flex items-center gap-1"
-                      >
-                        <Copy className="w-2 h-2" />
-                        <span>نسخ 📋</span>
-                      </button>
-
-                      {u.addressProfile.mapLink && (
-                        <a
-                          href={u.addressProfile.mapLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-1.5 py-0.5 bg-zinc-900 hover:bg-zinc-800 text-[8px] rounded font-bold text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 text-[8px]"
-                        >
-                          <MapPin className="w-2 h-2" />
-                          <span>عرض الخريطة 📍</span>
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="border-t pt-2 mt-1 space-y-2" style={{ borderColor: theme.border }}>
-                  <p className="text-[9px] text-gray-400 select-none leading-relaxed">
-                    ⚙️ <span className="font-medium text-gray-300">{roleDesc}</span>
-                  </p>
-
-                  {/* Actions (Allowed for المالك or المدير role) */}
-                  {(user.role === "مدير" || user.role === "مالك") && (
-                    <div className="flex items-center justify-end gap-2.5 pt-1">
-                      <button
-                        onClick={() => handleEditClick(u)}
-                        className="p-1 px-2.5 rounded text-[9px] font-bold border flex items-center gap-1 hover:bg-slate-800 cursor-pointer active:scale-95 transition-all text-blue-400"
-                        style={{ borderColor: theme.border }}
-                      >
-                        <Edit2 className="w-2.5 h-2.5" />
-                        <span>تعديل</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleDeleteUser(u.id)}
-                        disabled={isMe}
-                        className="p-1 px-2.5 rounded text-[9px] font-bold border flex items-center gap-1 cursor-pointer active:scale-95 transition-all text-red-400 disabled:opacity-20 disabled:pointer-events-none"
-                        style={{ borderColor: theme.border }}
-                      >
-                        <Trash2 className="w-2.5 h-2.5" />
-                        <span>حذف</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          <button
+            type="button"
+            onClick={onOpenHRTab}
+            className="py-2.5 px-6 rounded-2xl bg-amber-550 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer shadow border-none self-end sm:self-center shrink-0"
+          >
+            <span>👥 الانتقال إلى الموارد البشرية HR</span>
+          </button>
         </div>
       </div>
 
@@ -1616,141 +1352,79 @@ export default function Settings({
         </div>
       </div>
 
-      {/* Supabase PostgreSQL Project Migration System (Bullet 18 & 17) */}
-      <div className="p-5 rounded-2xl border space-y-4 text-right" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3.5 mb-2" style={{ borderColor: theme.border }}>
-          <div className="flex items-center gap-2.5">
-            <Globe className="w-5 h-5" style={{ color: theme.accent }} />
-            <div>
-              <h3 className="text-xs font-black" style={{ color: theme.text }}>مركز المزامنة لترحيل البيانات لـ Supabase ⚡</h3>
-              <p className="text-[10px]" style={{ color: theme.muted }}>اربط مشروعك السحابي لحفظ الفواتير والعمليات في قاعدة بيانات Postgres حقيقية مباشرة</p>
-            </div>
-          </div>
-          {isSupabaseConnected ? (
-            <span className="text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 py-1 px-2.5 rounded-lg font-black flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping"></span>
-              <span>خادم Supabase نشط</span>
-            </span>
-          ) : (
-            <span className="text-[10px] bg-slate-900 border border-slate-800 text-gray-400 py-1 px-2.5 rounded-lg font-bold">
-              تخزين محلي (Local DB Mode)
-            </span>
-          )}
-        </div>
-
-        <p className="text-[11px] leading-relaxed text-gray-400">
-          منصة سهم متوافقة بالكامل مع خوادم **Supabase**. عند إضافة مفاتيح العمل السحابية الخاصة بمشروعك، سنقوم بإنشاء المخطط السحابي (PostgreSQL tables) ومزامنة كامل الفواتير، وبيئة POS، وحسابات العملاء بشكل لحظي وآمن.
-        </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-black text-gray-400 mb-1.5">• عنوان مشروع Supabase (API URL):</label>
-            <input
-              type="text"
-              value={supabaseUrl}
-              onChange={(e) => setSupabaseUrl(e.target.value)}
-              disabled={isSupabaseConnected || isMigratingToSupabase}
-              placeholder="مثال: https://xrqbygswtyrskymmlytp.supabase.co"
-              className="w-full text-xs rounded-lg py-2.5 px-3 border outline-none text-left font-mono"
-              style={{ backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }}
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-black text-gray-400 mb-1.5">• مفتاح الوصول العام (Anon API Key):</label>
-            <input
-              type="password"
-              value={supabaseAnonKey}
-              onChange={(e) => setSupabaseAnonKey(e.target.value)}
-              disabled={isSupabaseConnected || isMigratingToSupabase}
-              placeholder="أدخل مفتاح Supabase public anon key الخاص بك..."
-              className="w-full text-xs rounded-lg py-2.5 px-3 border outline-none text-left font-mono"
-              style={{ backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }}
-            />
-          </div>
-        </div>
-
-        {/* Console view for real-time migration logs */}
-        {(isMigratingToSupabase || supabaseMigrationLogs.length > 0) && (
-          <div className="p-3.5 rounded-xl bg-black border border-slate-800 text-left space-y-1 max-h-48 overflow-y-auto">
-            <span className="block text-right text-[8px] font-mono text-gray-500 uppercase tracking-widest border-b border-gray-900 pb-1 mb-2">Supabase SQL Console Logs</span>
-            {supabaseMigrationLogs.map((log, idx) => (
-              <p key={idx} className="font-mono text-[9px] text-emerald-400 tracking-wide select-text leading-tight">{log}</p>
-            ))}
-            {isMigratingToSupabase && (
-              <div className="flex items-center gap-1.5 justify-start text-[9.5px] text-gray-500 font-mono animate-pulse pt-1">
-                <RefreshCw className="w-3 h-3 animate-spin text-amber-500" />
-                <span>ترحيل حزم الجداول نشط الآن...</span>
+      {/* Supabase PostgreSQL Project Migration System (Strict Read-only Mode) */}
+      {isPlatformOwner && (
+        <div className="p-5 rounded-2xl border space-y-4 text-right" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3.5 mb-2" style={{ borderColor: theme.border }}>
+            <div className="flex items-center gap-2.5">
+              <Globe className="w-5 h-5" style={{ color: theme.accent }} />
+              <div>
+                <h3 className="text-xs font-black" style={{ color: theme.text }}>حالة الربط السحابي (Supabase Connected) ⚡</h3>
+                <p className="text-[10px]" style={{ color: theme.muted }}>معلومات الاتصال السحابي الحالية بنظام سهم</p>
               </div>
+            </div>
+            {isSupabaseConnected ? (
+              <span className="text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 py-1 px-2.5 rounded-lg font-black flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping"></span>
+                <span>نشط ومتصل</span>
+              </span>
+            ) : (
+              <span className="text-[10px] bg-red-500/10 border border-red-500/30 text-red-400 py-1 px-2.5 rounded-lg font-black flex items-center gap-1.5">
+                <span>غير متصل بالخادم السحابي</span>
+              </span>
             )}
           </div>
-        )}
 
-        <div className="flex justify-end gap-2.5 pt-1">
-          {isSupabaseConnected ? (
-            <button
-              type="button"
-              onClick={handleDisconnectSupabase}
-              className="py-2.5 px-5 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl active:scale-95 transition-all cursor-pointer shadow-sm"
-            >
-              قطع الاتصال واستعادة التخزين المحلي 🔌
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleStartSupabaseMigration}
-              disabled={isMigratingToSupabase}
-              className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 text-white font-black text-xs rounded-xl active:scale-95 transition-all cursor-pointer shadow-sm flex items-center gap-2"
-            >
-              {isMigratingToSupabase && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-              <span>اختبار الاتصال وترحيل البيانات حياً لـ Supabase 🚀</span>
-            </button>
-          )}
+          <p className="text-[11px] leading-relaxed text-gray-400">
+            تتم مزامنة البيانات وتأمينها تلقائياً على خوادم Supabase النشطة. يتم التحكم في إعدادات الاتصال وقيم المفاتيح حصرياً عن طريق ملف الإعدادات البيئية .env.
+          </p>
         </div>
-      </div>
+      )}
 
       {/* Backup and restore panel */}
-      <div className="p-5 rounded-2xl border space-y-4 text-right" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <div className="flex items-center gap-2 border-b pb-3 mb-2" style={{ borderColor: theme.border }}>
-          <Database className="w-4 h-4" style={{ color: theme.accent }} />
-          <h3 className="text-xs font-black" style={{ color: theme.text }}>النسخ الاحتياطي وإدارة البيانات</h3>
-        </div>
+      {isPlatformOwner && (
+        <div className="p-5 rounded-2xl border space-y-4 text-right" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+          <div className="flex items-center gap-2 border-b pb-3 mb-2" style={{ borderColor: theme.border }}>
+            <Database className="w-4 h-4" style={{ color: theme.accent }} />
+            <h3 className="text-xs font-black" style={{ color: theme.text }}>النسخ الاحتياطي وإدارة البيانات</h3>
+          </div>
 
-        <p className="text-xs" style={{ color: theme.muted }}>
-          قم بحفظ وتصدير قاعدة بيانات متجرك بالكامل (شاملاً المنتجات المضافة، الفواتير الصادرة، والعملاء) للرجوع إليها كنسخة احتياطية محلية، أو استيرادها في أي جهاز آخر لتسجيل العمليات بسلاسة.
-        </p>
+          <p className="text-xs" style={{ color: theme.muted }}>
+            قم بحفظ وتصدير قاعدة بيانات متجرك بالكامل (شاملاً المنتجات المضافة، الفواتير الصادرة، والعملاء) للرجوع إليها كنسخة احتياطية محلية، أو استيرادها في أي جهاز آخر لتسجيل العمليات بسلاسة.
+          </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-          {/* Export Button */}
-          <button
-            onClick={handleExportData}
-            className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-extrabold text-xs cursor-pointer shadow-sm transition-all border hover:brightness-110 active:scale-95"
-            style={{ backgroundColor: theme.accent + "15", borderColor: theme.accent + "35", color: theme.accent }}
-          >
-            <Download className="w-4 h-4 shrink-0" />
-            <span>تصدير نسخة احتياطية محلية (JSON) 📤</span>
-          </button>
-
-          {/* Import Button Wrapper */}
-          <div className="relative">
-            <input
-              type="file"
-              id="restore-file-input"
-              accept=".json"
-              onChange={handleImportData}
-              className="hidden"
-            />
-            <label
-              htmlFor="restore-file-input"
-              className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-extrabold text-xs cursor-pointer shadow-sm transition-all border hover:brightness-110 active:scale-95 text-center w-full block"
-              style={{ backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            {/* Export Button */}
+            <button
+              onClick={handleExportData}
+              className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-extrabold text-xs cursor-pointer shadow-sm transition-all border hover:brightness-110 active:scale-95"
+              style={{ backgroundColor: theme.accent + "15", borderColor: theme.accent + "35", color: theme.accent }}
             >
-              <Upload className="w-4 h-4 shrink-0" />
-              <span>استيراد واستعادة نسخة احتياطية 📥</span>
-            </label>
+              <Download className="w-4 h-4 shrink-0" />
+              <span>تصدير نسخة احتياطية محلية (JSON) 📤</span>
+            </button>
+
+            {/* Import Button Wrapper */}
+            <div className="relative">
+              <input
+                type="file"
+                id="restore-file-input"
+                accept=".json"
+                onChange={handleImportData}
+                className="hidden"
+              />
+              <label
+                htmlFor="restore-file-input"
+                className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-extrabold text-xs cursor-pointer shadow-sm transition-all border hover:brightness-110 active:scale-95 text-center w-full block"
+                style={{ backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }}
+              >
+                <Upload className="w-4 h-4 shrink-0" />
+                <span>استيراد واستعادة نسخة احتياطية 📥</span>
+              </label>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* App branding footer card block */}
       <div className="p-6 rounded-2xl border text-center flex flex-col items-center justify-center space-y-3"
@@ -1769,7 +1443,7 @@ export default function Settings({
         </>
       )}
 
-      {settingsTab === "theme" && (
+      {settingsTab === "theme" && isPlatformOwner && (
         <ThemeStudioMarketplace
           theme={theme}
           themeKey={themeKey as any}
@@ -1792,7 +1466,7 @@ export default function Settings({
         />
       )}
 
-      {settingsTab === "subscription" && (
+      {settingsTab === "subscription" && isPlatformOwner && (
         <SaaSSubscriptionEngine
           theme={theme}
           subscription={subscription}
@@ -1812,7 +1486,7 @@ export default function Settings({
         />
       )}
 
-      {settingsTab === "audit" && (
+      {settingsTab === "audit" && isPlatformOwner && (
         <AuditLogTimeline
           theme={theme}
           logs={auditLogs}
@@ -1821,16 +1495,54 @@ export default function Settings({
         />
       )}
 
-      {settingsTab === "backup" && (
+      {settingsTab === "backup" && isPlatformOwner && (
         <BackupRestoreSystem
           theme={theme}
-          onRestore={(data) => {
-            if (data.products) localStorage.setItem("sahm_web_products", JSON.stringify(data.products));
-            if (data.customers) localStorage.setItem("sahm_web_customers", JSON.stringify(data.customers));
-            if (data.invoices) localStorage.setItem("sahm_web_invoices", JSON.stringify(data.invoices));
-            if (data.suppliers) localStorage.setItem("sahm_web_suppliers", JSON.stringify(data.suppliers));
-            if (data.stores) localStorage.setItem("sahm_web_stores", JSON.stringify(data.stores));
-            if (data.activeStoreId) localStorage.setItem("sahm_active_store_id", data.activeStoreId);
+          onRestore={async (data) => {
+            const isSupabase = import.meta.env.VITE_DATA_MODE === "supabase";
+            if (isSupabase) {
+              const db = SahmDatabaseService.getInstance();
+              try {
+                if (data.products && Array.isArray(data.products)) {
+                  for (const p of data.products) {
+                    await db.saveProduct(p);
+                  }
+                }
+                if (data.customers && Array.isArray(data.customers)) {
+                  for (const c of data.customers) {
+                    await db.saveCustomer(c);
+                  }
+                }
+                if (data.invoices && Array.isArray(data.invoices)) {
+                  for (const inv of data.invoices) {
+                    await db.saveInvoice(inv);
+                  }
+                }
+                if (data.suppliers && Array.isArray(data.suppliers)) {
+                  for (const s of data.suppliers) {
+                    await db.saveSupplier(s);
+                  }
+                }
+                if (data.stores && Array.isArray(data.stores)) {
+                  for (const st of data.stores) {
+                    await db.saveStore(st);
+                  }
+                }
+                if (data.activeStoreId) {
+                  localStorage.setItem("sahm_active_store_id", data.activeStoreId);
+                }
+              } catch (e: any) {
+                triggerNotification?.("فشل استيراد البيانات إلى السحاب: " + e.message, "error");
+                return;
+              }
+            } else {
+              if (data.products) localStorage.setItem("sahm_web_products", JSON.stringify(data.products));
+              if (data.customers) localStorage.setItem("sahm_web_customers", JSON.stringify(data.customers));
+              if (data.invoices) localStorage.setItem("sahm_web_invoices", JSON.stringify(data.invoices));
+              if (data.suppliers) localStorage.setItem("sahm_web_suppliers", JSON.stringify(data.suppliers));
+              if (data.stores) localStorage.setItem("sahm_web_stores", JSON.stringify(data.stores));
+              if (data.activeStoreId) localStorage.setItem("sahm_active_store_id", data.activeStoreId);
+            }
             
             triggerNotification?.("تم تأكيد ودمج ملف الاستيراد وقنوات المتاجر المتعددة في قواعد سهم! 📥", "success");
             setTimeout(() => {
@@ -1842,13 +1554,37 @@ export default function Settings({
         />
       )}
 
-      {settingsTab === "media" && (
+      {settingsTab === "media" && isPlatformOwner && (
         <MediaCenter 
           theme={theme} 
           triggerNotification={triggerNotification}
           addAuditLog={addAuditLog}
           currentUser={user}
         />
+      )}
+
+      {settingsTab === "icons" && isPlatformOwner && (
+        <div className="p-5 rounded-2xl border space-y-6 animate-fade-in" style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+          <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: theme.border }}>
+            <div className="flex items-center gap-2">
+              <span className="p-2 bg-amber-500/10 text-amber-500 rounded-xl">🎨</span>
+              <div>
+                <h3 className="text-sm font-black text-white">إعدادات وتخصيص أيقونات النظام الموحدة</h3>
+                <p className="text-[10px] text-gray-400">خصص مظهر وأيقونات القوائم الجانبية، الأزرار، الكروت، الفروع والخدمات</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg bg-amber-500/[0.02] border border-amber-500/15 text-xs text-right text-gray-300 font-sans leading-relaxed">
+            💡 <strong>حرية التخصيص الكاملة:</strong> يوفر هذا التبويب للمدراء التنفيذيين إمكانية إعادة تصميم وتعديل أيقونات الأفرع والأقسام ومحاور المنصة. يمكنك الاختيار من مكتبة مدمجة حيوية، أو رفع أيقونة مخصصة (رابط صورة PNG/SVG مباشر أو كود SVG خام).
+          </div>
+
+          <IconSettingsPanel 
+            theme={theme} 
+            triggerNotification={triggerNotification} 
+            addAuditLog={addAuditLog} 
+          />
+        </div>
       )}
 
       {/* 💳 SaaS Subscription Multi-Tier Upgrade Portal (Bullet 10) */}
@@ -1975,6 +1711,215 @@ export default function Settings({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function IconSettingsPanel({ theme, triggerNotification, addAuditLog }: { theme: any, triggerNotification: any, addAuditLog: any }) {
+  const [activeEditingModule, setActiveEditingModule] = useState<string | null>(null);
+  const [customInputValue, setCustomInputValue] = useState("");
+  const [selectedLibraryIcon, setSelectedLibraryIcon] = useState("");
+
+  const [iconMap, setIconMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const initialConfig: Record<string, string> = {};
+    const modules = [
+      "sahm_brand_logo", "command_center", "intelligent_hub", "setup_organizations", 
+      "products", "pos_and_operations", "integrations", "financial_hub", 
+      "reports", "help", "hr", "settings", "branches", "warehouses", "pos", "stores"
+    ];
+    modules.forEach(m => {
+      initialConfig[m] = getActiveIconValue(m);
+    });
+    setIconMap(initialConfig);
+
+    const handleUpdate = () => {
+      const refreshed: Record<string, string> = {};
+      modules.forEach(m => {
+        refreshed[m] = getActiveIconValue(m);
+      });
+      setIconMap(refreshed);
+    };
+
+    window.addEventListener("sahm_icons_updated", handleUpdate);
+    return () => window.removeEventListener("sahm_icons_updated", handleUpdate);
+  }, []);
+
+  const systemModules = [
+    { id: "sahm_brand_logo", name: "شعار سهم الموحد (SAHM OS Logo) 🏷️🏆", desc: "الشعار والرمز الميداني المميز لقصة النجاح في كابينة القيادة التنفيذية للمجموعة" },
+    { id: "command_center", name: "مركز القيادة والتحليلات ⚡", desc: "أيقونة مركز القيادة الرئيسي للوحة التحكم" },
+    { id: "intelligent_hub", name: "المنصة الذكية 🧠🔌", desc: "أقسام الذكاء الاصطناعي وصناعة المحتوى الذكي" },
+    { id: "setup_organizations", name: "التأسيس والمنشآت 🏢⭐", desc: "أيقونة مرشد التأسيس، المنشآت والمستودعات الموحدة" },
+    { id: "products", name: "المنتجات والمخزون 📦", desc: "إدارة المنتجات، الأصناف، كروت تفاصيل المخزن" },
+    { id: "pos_and_operations", name: "العمليات ونقاط البيع 🛍️🏢", desc: "واجهة الكاشير POS الفورية ومربعات السلة" },
+    { id: "integrations", name: "مركز التكاملات والمنافذ 🔌", desc: "ربط قنوات سلة، زد ومنافذ الدفع الآلي" },
+    { id: "financial_hub", name: "المنظومة المالية والشركاء ⚖️", desc: "الفواتير الإلكترونية، العملاء والموردين" },
+    { id: "hr", name: "الموارد البشرية والموظفين 👥", desc: "شؤون طاقم العمل، الصلاحيات والتحكم" },
+    { id: "reports", name: "التقارير والإحصائيات 📊", desc: "التقارير البيانية والرسومات التحليلية للأرباح" },
+    { id: "help", name: "مركز التواصل والدعم 💬", desc: "تذاكر الدعم والاتصال السحابي المباشر بمراسيم" },
+    { id: "settings", name: "إعدادات النظام والمظهر ⚙️", desc: "تخصيص ثيمات الألوان والتحكم الكامل بالامتدادات" },
+    { id: "branches", name: "فروع التشغيل الميدانية 📍", desc: "أزرار وكروت استعراض فروع التشغيل الميداني" },
+    { id: "warehouses", name: "المستودعات ومواقع التخزين 📦", desc: "أزرار ومؤشرات المستودعات اللوجستية والتموين" },
+    { id: "pos", name: "أجهزة الكاشير والعمليات 🖥️", desc: "أيقونة وحدات وأجهزة نقاط البيع النشطة" },
+    { id: "stores", name: "المتاجر والعلامات التجارية 🏬", desc: "أيقونة العلامة التجارية النشطة والماركات" }
+  ];
+
+  const handleStartEdit = (moduleId: string) => {
+    setActiveEditingModule(moduleId);
+    const currentValue = getActiveIconValue(moduleId);
+    
+    const isLibrary = AVAILABLE_LIBRARY_ICONS.some(icon => icon.name === currentValue || icon.kebab === currentValue);
+    if (isLibrary) {
+      setSelectedLibraryIcon(currentValue);
+      setCustomInputValue("");
+    } else {
+      setSelectedLibraryIcon("");
+      setCustomInputValue(currentValue);
+    }
+  };
+
+  const handleSaveIcon = (moduleId: string) => {
+    let finalValue = "";
+    if (customInputValue.trim()) {
+      finalValue = customInputValue.trim();
+    } else if (selectedLibraryIcon) {
+      finalValue = selectedLibraryIcon;
+    } else {
+      triggerNotification("⚠️ الرجاء اختيار أيقونة أو إدخال كود SVG/رابط مخصص أولاً.", "warning");
+      return;
+    }
+
+    saveCustomIcon(moduleId, finalValue);
+    setActiveEditingModule(null);
+    triggerNotification("✓ تم حفظ الأيقونة الجديدة للقسم وتحديث كافة واجهات المنصة فوراً! 🎨", "success");
+    addAuditLog("تعديل أيقونة النظام", `تم تعديل أيقونة تبويب [${moduleId}] إلى الأيقونة المخصصة.`);
+  };
+
+  const handleResetToDefault = (moduleId: string) => {
+    resetCustomIcon(moduleId);
+    setActiveEditingModule(null);
+    triggerNotification("✓ تم استعادة الأيقونة الافتراضية للقسم بنجاح! 🔄", "info");
+    addAuditLog("استعادة أيقونة النظام الافتراضية", `تم استرجاع الأيقونة الرسمية لتبويب [${moduleId}].`);
+  };
+
+  return (
+    <div className="space-y-4 text-right">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {systemModules.map(mod => {
+          const isEditing = activeEditingModule === mod.id;
+          return (
+            <div 
+              key={mod.id}
+              className={`p-4 rounded-xl border flex flex-col justify-between gap-3 text-right transition-all transform duration-200 ${
+                isEditing 
+                ? "border-amber-500 bg-amber-500/[0.01] shadow-[0_0_15px_rgba(212,175,55,0.1)] scale-[1.01]" 
+                : "border-slate-800 bg-slate-950/20 hover:bg-slate-950/40"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-0.5 max-w-[80%]">
+                  <span className="text-[11.5px] font-black text-white block">{mod.name}</span>
+                  <p className="text-[9.5px] text-gray-400 font-sans leading-relaxed">{mod.desc}</p>
+                </div>
+                
+                <div 
+                  className="w-10 h-10 rounded-lg flex items-center justify-center border text-amber-400 bg-slate-900 shadow-inner shrink-0"
+                  style={{ borderColor: isEditing ? "rgba(212,175,55,0.4)" : "rgba(255,255,255,0.05)" }}
+                >
+                  <CustomIconRenderer 
+                    moduleId={mod.id} 
+                    className="w-5 h-5 shrink-0 transition-transform duration-300 transform scale-110" 
+                  />
+                </div>
+              </div>
+
+              {!isEditing ? (
+                <div className="flex items-center justify-end gap-2 border-t border-slate-900 pt-2.5 mt-1">
+                  {localStorage.getItem("sahm_custom_icons_config") && JSON.parse(localStorage.getItem("sahm_custom_icons_config") || "{}")[mod.id] && (
+                    <span className="text-[9px] text-[#D4AF37] font-extrabold font-sans bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/10 ml-auto">
+                      ● مخصصة
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleStartEdit(mod.id)}
+                    className="py-1 px-3 bg-slate-900 hover:bg-slate-800 text-gray-300 hover:text-white border border-slate-800 hover:border-amber-500/35 text-[10px] font-black rounded-lg cursor-pointer transition-colors"
+                  >
+                    تغيير الأيقونة 🎨
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3 pt-2.5 mt-1 border-t border-amber-500/15 animate-fade-in">
+                  
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-amber-500 font-black tracking-wide block">1. اختر أيقونة جاهزة من المكتبة المدمجة:</label>
+                    <select
+                      value={selectedLibraryIcon}
+                      onChange={(e) => {
+                        setSelectedLibraryIcon(e.target.value);
+                        setCustomInputValue("");
+                      }}
+                      className="w-full bg-[#05060c] text-neutral-200 border border-zinc-800 rounded-lg p-1.5 px-2 text-[10.5px] font-bold focus:outline-none focus:border-amber-500/50"
+                    >
+                      <option value="">-- أو ادخل تخصيصاً حراً بالأسفل --</option>
+                      {AVAILABLE_LIBRARY_ICONS.map(i => (
+                        <option key={i.name} value={i.name}>
+                          {i.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[8px] text-zinc-500 font-bold leading-none select-none">(اختياري)</span>
+                      <label className="text-[9px] text-amber-500 font-black tracking-wide block">2. أو ارفع كود SVG خام / رابط صورة (PNG/SVG):</label>
+                    </div>
+                    <textarea
+                      value={customInputValue}
+                      onChange={(e) => {
+                        setCustomInputValue(e.target.value);
+                        setSelectedLibraryIcon("");
+                      }}
+                      placeholder={`أدخل رابط ويب للصورة مسبوقاً بـ http:// أو كود خام يبدأ بـ <svg...`}
+                      rows={2}
+                      className="w-full bg-slate-950/80 text-neutral-200 border border-zinc-900 rounded-lg p-1.5 focus:outline-none focus:border-amber-500/50 text-[10.5px] font-mono leading-tight tracking-wider"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2.5 pt-1.5 border-t border-slate-900">
+                    <button
+                      type="button"
+                      onClick={() => handleResetToDefault(mod.id)}
+                      className="py-1 px-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-500 border border-red-500/20 text-[10px] font-black rounded-lg cursor-pointer transition-colors"
+                    >
+                      استعادة الافتراضي ↺
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveEditingModule(null)}
+                        className="py-1 px-3 bg-slate-900 text-gray-400 hover:text-white rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                      >
+                        إلغاء
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveIcon(mod.id)}
+                        className="py-1 px-3.5 bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-black rounded-lg cursor-pointer transition-all active:scale-95"
+                      >
+                        تطبيق وحفظ الحزمة ✓
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

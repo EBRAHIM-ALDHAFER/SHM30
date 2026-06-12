@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Product, ThemeColors, User } from "../types";
+import { getMediaCenterFiles, saveMediaCenterFiles } from "../utils/safeStorage";
 import { 
   Sparkles, CheckCircle2, AlertTriangle, TrendingUp, Printer, Download, Share2, X, 
   ChevronRight, ChevronLeft, Search, Layers, Settings, RefreshCw, FileText, Image as ImageIcon, 
@@ -8,6 +9,362 @@ import {
 import { productTimelineService } from "../core/database/productTimelineService";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
+
+/**
+ * Helper to convert modern CSS colors (oklch, oklab, lch, lab) to html2canvas-compatible hsl(...) or hsla(...) format.
+ */
+function replaceModernColorsWithHsl(cssText: string): string {
+  if (!cssText) return "";
+  
+  const colorFnRegex = /\b(oklch|oklab|lch|lab)\s*\(/gi;
+  let result = "";
+  let i = 0;
+  
+  while (i < cssText.length) {
+    colorFnRegex.lastIndex = i;
+    const match = colorFnRegex.exec(cssText);
+    if (!match) {
+      result += cssText.substring(i);
+      break;
+    }
+    
+    const matchIndex = match.index;
+    const fnName = match[1].toLowerCase();
+    
+    // Add everything before the match
+    result += cssText.substring(i, matchIndex);
+    
+    // Find matching closing parenthesis
+    let parenCount = 1;
+    let j = matchIndex + fnName.length + 1; // index after the opening '('
+    while (j < cssText.length && parenCount > 0) {
+      if (cssText[j] === "(") {
+        parenCount++;
+      } else if (cssText[j] === ")") {
+        parenCount--;
+      }
+      j++;
+    }
+    
+    const innerText = cssText.substring(matchIndex + fnName.length + 1, j - 1).trim();
+    
+    if (innerText.includes("var(")) {
+      // html2canvas cannot resolve custom property references nested inside,
+      // map to neutral gray to avoid parse crash
+      result += "hsl(0, 0%, 50%)";
+    } else {
+      const parts = innerText.split(/[\s,/]+/);
+      if (parts.length >= 3) {
+        try {
+          const first = parts[0];
+          const second = parts[1];
+          const third = parts[2];
+          const alphaPart = parts[3] || null;
+          
+          // Lightness (L) is first for all of them
+          let l = first.endsWith("%") ? parseFloat(first) : parseFloat(first) * 100;
+          if (isNaN(l)) l = 50;
+          
+          let h = 0;
+          let s = 100;
+          
+          if (fnName === "oklch" || fnName === "lch") {
+            const c = parseFloat(second);
+            const maxC = fnName === "oklch" ? 0.4 : 150;
+            s = isNaN(c) ? 0 : (c / maxC) * 100;
+            if (s > 100) s = 100;
+            if (s < 0) s = 0;
+            
+            h = parseFloat(third);
+            if (isNaN(h)) h = 0;
+          } else if (fnName === "oklab" || fnName === "lab") {
+            const a = parseFloat(second);
+            const b = parseFloat(third);
+            if (!isNaN(a) && !isNaN(b)) {
+              const c = Math.sqrt(a * a + b * b);
+              const maxC = fnName === "oklab" ? 0.4 : 125;
+              s = (c / maxC) * 100;
+              if (s > 100) s = 100;
+              if (s < 0) s = 0;
+              
+              h = Math.atan2(b, a) * (180 / Math.PI);
+              if (h < 0) h += 360;
+            } else {
+              s = 0;
+              h = 0;
+            }
+          }
+          
+          if (alphaPart) {
+            let a = alphaPart.endsWith("%") ? parseFloat(alphaPart) / 100 : parseFloat(alphaPart);
+            if (isNaN(a)) a = 1;
+            result += `hsla(${h.toFixed(1)}, ${s.toFixed(1)}%, ${l.toFixed(1)}%, ${a})`;
+          } else {
+            result += `hsl(${h.toFixed(1)}, ${s.toFixed(1)}%, ${l.toFixed(1)}%)`;
+          }
+        } catch (e) {
+          result += "hsl(0, 0%, 50%)";
+        }
+      } else {
+        result += "hsl(0, 0%, 50%)";
+      }
+    }
+    
+    i = j;
+  }
+  return result;
+}
+
+/**
+ * Helper to get CSS text from a stylesheet element (style or same-origin link).
+ */
+function getStyleElementCss(el: Element): string {
+  try {
+    if (el.tagName.toLowerCase() === "style") {
+      return el.textContent || "";
+    }
+    if (el.tagName.toLowerCase() === "link") {
+      const linkEl = el as HTMLLinkElement;
+      const sheet = linkEl.sheet as CSSStyleSheet | null;
+      if (sheet && sheet.cssRules) {
+        let cssText = "";
+        const rules = Array.from(sheet.cssRules);
+        for (const rule of rules) {
+          cssText += rule.cssText + "\n";
+        }
+        return cssText;
+      }
+    }
+  } catch (e) {
+    // Cross-origin CSS files throw security errors if accessed directly
+  }
+  return "";
+}
+
+/**
+ * Safe onclone hook for html2canvas to intercept custom computed styles and
+ * sanitize element properties within the decoupled rendering iframe.
+ */
+function handleHtml2CanvasClone(clonedDoc: Document): void {
+  const clonedWin = clonedDoc.defaultView;
+  if (!clonedWin) return;
+
+  // Intercept computation lookups so html2canvas never receives raw "oklab", "oklch" etc.
+  const originalGetComputedStyle = clonedWin.getComputedStyle;
+  clonedWin.getComputedStyle = function(elt: Element, pseudoElt?: string | null) {
+    const style = originalGetComputedStyle.call(clonedWin, elt, pseudoElt);
+    if (!style) return style;
+    return new Proxy(style, {
+      get(target, prop) {
+        if (prop === 'getPropertyValue') {
+          return function(propertyName: string) {
+            const val = target.getPropertyValue(propertyName);
+            if (typeof val === 'string' && (
+              val.toLowerCase().includes('oklch') || 
+              val.toLowerCase().includes('oklab') || 
+              val.toLowerCase().includes('lch') || 
+              val.toLowerCase().includes('lab')
+            )) {
+              return replaceModernColorsWithHsl(val);
+            }
+            return val;
+          };
+        }
+        
+        const val = target[prop as any];
+        if (typeof val === 'function') {
+          return val.bind(target);
+        }
+        if (typeof prop === 'string' && typeof val === 'string' && (
+          val.toLowerCase().includes('oklch') || 
+          val.toLowerCase().includes('oklab') || 
+          val.toLowerCase().includes('lch') || 
+          val.toLowerCase().includes('lab')
+        )) {
+          return replaceModernColorsWithHsl(val);
+        }
+        return val;
+      }
+    });
+  };
+
+  // Safe patch CSSStyleDeclaration prototype inside the cloned environment
+  if (clonedWin.CSSStyleDeclaration) {
+    const originalGetPropertyValue = clonedWin.CSSStyleDeclaration.prototype.getPropertyValue;
+    clonedWin.CSSStyleDeclaration.prototype.getPropertyValue = function(propertyName: string) {
+      const val = originalGetPropertyValue.call(this, propertyName);
+      if (typeof val === 'string' && (
+        val.toLowerCase().includes('oklch') || 
+        val.toLowerCase().includes('oklab') || 
+        val.toLowerCase().includes('lch') || 
+        val.toLowerCase().includes('lab')
+      )) {
+        return replaceModernColorsWithHsl(val);
+      }
+      return val;
+    };
+  }
+
+  // Sanitize inline styles of cloned elements
+  const elements = clonedDoc.getElementsByTagName("*");
+  const checkNames = ["oklch", "oklab", "lch", "lab"];
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    const styleAttr = el.getAttribute("style");
+    if (styleAttr && checkNames.some(name => styleAttr.toLowerCase().includes(name + "("))) {
+      el.setAttribute("style", replaceModernColorsWithHsl(styleAttr));
+    }
+  }
+}
+
+/**
+ * Strips unsupported modern colors from style elements, replaces same-origin stylesheets 
+ * temporarily with a clean and fully mapped HSL duplicate, and intercepts window.getComputedStyle
+ * so fallback CSS colors are returned transparently to html2canvas.
+ */
+function sanitizeOklchStyles(): () => void {
+  const backups: Array<{ element: Element; parent: Node; nextSibling: Node | null }> = [];
+  const originalInlineStyles = new Map<Element, string>();
+  let tempStyleElement: HTMLStyleElement | null = null;
+
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return () => {};
+  }
+
+  // Backup getComputedStyle functions
+  const originalGetComputedStyle = window.getComputedStyle;
+  const originalDefaultViewGetComputedStyle = window.document?.defaultView?.getComputedStyle;
+  
+  try {
+    // Intercept computation lookups so html2canvas never receives raw "oklab", "oklch" etc.
+    const wrapGetComputedStyle = (originalFn: typeof window.getComputedStyle) => {
+      return function(elt: Element, pseudoElt?: string | null) {
+        const style = originalFn.call(window, elt, pseudoElt);
+        if (!style) return style;
+        return new Proxy(style, {
+          get(target, prop, receiver) {
+            if (prop === 'getPropertyValue') {
+              return function(propertyName: string) {
+                const val = target.getPropertyValue(propertyName);
+                if (typeof val === 'string' && (
+                  val.toLowerCase().includes('oklch') || 
+                  val.toLowerCase().includes('oklab') || 
+                  val.toLowerCase().includes('lch') || 
+                  val.toLowerCase().includes('lab')
+                )) {
+                  return replaceModernColorsWithHsl(val);
+                }
+                return val;
+              };
+            }
+            
+            const val = Reflect.get(target, prop);
+            if (typeof val === 'function') {
+              return val.bind(target);
+            }
+            if (typeof prop === 'string' && typeof val === 'string' && (
+              val.toLowerCase().includes('oklch') || 
+              val.toLowerCase().includes('oklab') || 
+              val.toLowerCase().includes('lch') || 
+              val.toLowerCase().includes('lab')
+            )) {
+              return replaceModernColorsWithHsl(val);
+            }
+            return val;
+          }
+        });
+      };
+    };
+
+    window.getComputedStyle = wrapGetComputedStyle(originalGetComputedStyle);
+    if (window.document?.defaultView) {
+      (window.document.defaultView as any).getComputedStyle = wrapGetComputedStyle(originalGetComputedStyle);
+    }
+
+    let combinedCssText = "";
+
+    // Find and backup/remove all stylesheet elements from DOM so document.styleSheets becomes empty
+    const styleEls = Array.from(document.querySelectorAll("style, link[rel='stylesheet']"));
+    for (const el of styleEls) {
+      if (el.id === "sahm-html2canvas-safe-styles") continue;
+      
+      const parent = el.parentNode;
+      if (!parent) continue;
+
+      // Extract original CSS content
+      const cssText = getStyleElementCss(el);
+      if (cssText) {
+        combinedCssText += replaceModernColorsWithHsl(cssText) + "\n";
+      }
+
+      // Record DOM position details for exact restoration
+      backups.push({
+        element: el,
+        parent: parent,
+        nextSibling: el.nextSibling
+      });
+
+      // Physically remove from DOM so html2canvas doesn't traverse it
+      parent.removeChild(el);
+    }
+
+    // Inject our perfectly mapped, sanitized single fallback stylesheet
+    tempStyleElement = document.createElement("style");
+    tempStyleElement.id = "sahm-html2canvas-safe-styles";
+    tempStyleElement.textContent = combinedCssText;
+    document.head.appendChild(tempStyleElement);
+
+    // Recursively clean up inline-style properties
+    const elements = document.getElementsByTagName("*");
+    const checkNames = ["oklch", "oklab", "lch", "lab"];
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      const styleAttr = el.getAttribute("style");
+      if (styleAttr && checkNames.some(name => styleAttr.toLowerCase().includes(name + "("))) {
+        originalInlineStyles.set(el, styleAttr);
+        el.setAttribute("style", replaceModernColorsWithHsl(styleAttr));
+      }
+    }
+  } catch (globalErr) {
+    console.warn("Stylesheet sanitization pipeline crashed:", globalErr);
+  }
+
+  // Restore function invoked right after html2canvas completes
+  return () => {
+    // Restore getComputedStyle
+    window.getComputedStyle = originalGetComputedStyle;
+    if (window.document?.defaultView) {
+      (window.document.defaultView as any).getComputedStyle = originalDefaultViewGetComputedStyle || originalGetComputedStyle;
+    }
+
+    try {
+      if (tempStyleElement && tempStyleElement.parentNode) {
+        tempStyleElement.parentNode.removeChild(tempStyleElement);
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    // Restore original stylesheet elements back into their exact DOM positions in reverse order
+    for (let i = backups.length - 1; i >= 0; i--) {
+      const item = backups[i];
+      try {
+        item.parent.insertBefore(item.element, item.nextSibling);
+      } catch (e) {
+        console.warn("Could not restore stylesheet element:", e);
+      }
+    }
+
+    // Restore inline element styles
+    originalInlineStyles.forEach((val, el) => {
+      try {
+        el.setAttribute("style", val);
+      } catch (e) {
+        // Ignore
+      }
+    });
+  };
+}
 
 interface CatalogGenerationItem {
   productId: string;
@@ -112,6 +469,9 @@ export default function SmartCatalogBuilder({
 
   // Print layout override indicator
   const [isPrintMode, setIsPrintMode] = useState(false);
+
+  // ReactRef representing the single source of truth for HTML-to-Canvas rendering
+  const catalogRef = useRef<HTMLDivElement>(null);
 
   // Initialize pre-selections from incoming props
   useEffect(() => {
@@ -385,21 +745,20 @@ export default function SmartCatalogBuilder({
   // 3. Save inside the Media file and documents catalog system (Requirement 8)
   const handleSaveToMediaCenter = (item: CatalogGenerationItem) => {
     try {
-      const savedFilesRaw = localStorage.getItem("sahm_media_center_files");
-      const savedFiles = savedFilesRaw ? JSON.parse(savedFilesRaw) : [];
+      const savedFiles = getMediaCenterFiles();
       
       const newFile = {
         id: `media_catalog_${Date.now()}`,
         name: `بطاقة كتالوج - ${item.title}.png`,
-        type: "image",
-        category: "templates",
+        type: "image" as const,
+        category: "templates" as const,
         url: item.image || "https://images.unsplash.com/photo-1547887537-6158d64c35b3?auto=format&fit=crop&q=80&w=200",
         size: "٣٨٠ كيلوبايت",
         date: new Date().toLocaleDateString("ar-SA")
       };
 
       const updated = [newFile, ...savedFiles];
-      localStorage.setItem("sahm_media_center_files", JSON.stringify(updated));
+      saveMediaCenterFiles(updated);
       triggerNotification(`تم تصدير وحفظ كرت العطر والأصل الإعلاني بمركز وسائط سهم! 🖼️🗂️`, "success");
       if (item.productId) {
         addTimelineEvent(item.productId, "تم تصدير كرت الكتالوج واللوحة وتخزينها بمكتبة وسائط الأرشيف.");
@@ -446,25 +805,29 @@ export default function SmartCatalogBuilder({
       return;
     }
     
-    triggerNotification("جاري معالجة الكتالوج وتوليد ملف PDF عالي الخطوط والألوان... 📜", "info");
+    triggerNotification("جاري معالجة الكتالوج وتوليد ملف PDF بالخط العربي المعتمد (Cairo/Tajawal)... 📜", "info");
     
     try {
-      const targetElement = document.getElementById("sahm-printable-catalog-inner");
+      const targetElement = catalogRef.current;
       if (!targetElement) {
-        throw new Error("لم يتم العثور على لوحة المعاينة بالموجز");
+        throw new Error("لم يتم العثور على لوحة المعاينة بالموجز. يرجى التأكد من استعراض تبويب خطوة التصدير والمشاركة.");
       }
       
       let imgData = "";
+      const restoreStyles = sanitizeOklchStyles();
       try {
         const canvas = await html2canvas(targetElement, {
           useCORS: true,
           allowTaint: true,
-          scale: 1.5,
-          backgroundColor: activeTheme === "white" ? "#ffffff" : "#020617"
+          scale: 2, // 2x scale for higher quality reading and anti-blur
+          backgroundColor: activeTheme === "white" ? "#ffffff" : "#020617",
+          onclone: handleHtml2CanvasClone
         });
-        imgData = canvas.toDataURL("image/jpeg", 0.9);
+        imgData = canvas.toDataURL("image/png"); // PNG handles sharp fonts better
       } catch (canvasErr: any) {
-        throw new Error(`تعذر التقاط صورة المعاينة بسبب بيئة المحاكاة: ${canvasErr.message || "html2canvas failed"}`);
+        throw new Error(`تعذر التقاط صورة المعاينة بالمتصفح: ${canvasErr.message || "html2canvas failed"}`);
+      } finally {
+        restoreStyles();
       }
       
       const pdf = new jsPDF({
@@ -485,17 +848,17 @@ export default function SmartCatalogBuilder({
         let heightLeft = imgHeight;
         let position = 0;
         
-        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
         
         while (heightLeft >= 0) {
           position = heightLeft - imgHeight;
           pdf.addPage();
-          pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+          pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
           heightLeft -= pageHeight;
         }
       } else {
-        throw new Error("فشل التقاط محتويات الكتالوج بنجاح لعدم توفر أصول الصورة.");
+        throw new Error("فشل التقاط محتويات الكتالوج لعدم توفر معالجة الصورة الرسمية.");
       }
 
       pdf.save(fileName);
@@ -504,21 +867,20 @@ export default function SmartCatalogBuilder({
       setDownloadPdfUrl(pdfDataUri);
       setDownloadPdfName(fileName);
       
-      const savedFilesRaw = localStorage.getItem("sahm_media_center_files");
-      const savedFiles = savedFilesRaw ? JSON.parse(savedFilesRaw) : [];
+      const savedFiles = getMediaCenterFiles();
       
       const newMediaId = `media_pdf_${Date.now()}`;
       const newFile = {
         id: newMediaId,
         name: fileName,
-        type: "pdf",
-        category: "documents",
+        type: "pdf" as const,
+        category: "documents" as const,
         url: pdfDataUri,
         size: `${Math.round(pdfDataUri.length / 1300)} كيلوبايت`,
         date: new Date().toLocaleDateString("ar-SA")
       };
       
-      localStorage.setItem("sahm_media_center_files", JSON.stringify([newFile, ...savedFiles]));
+      saveMediaCenterFiles([newFile, ...savedFiles]);
       
       triggerNotification("تم إنشاء ملف PDF وتحميله وحفظه بمكتبة الوسائط بنجاح! 📥📄", "success");
       addTimelineEvent(catalogItems[0].productId, `تم تصدير وحفظ كتالوج PDF بعنوان ${catalogTitle}`);
@@ -540,20 +902,27 @@ export default function SmartCatalogBuilder({
       return;
     }
     
-    triggerNotification("جاري تصوير وتجميع بطاقات العرض بألوان مشاكسة متناسقة... 🖼️", "info");
+    triggerNotification("جاري تصوير وتجميع بطاقات العرض والخطوط بألوان متناسقة... 🖼️", "info");
     
     try {
-      const targetElement = document.getElementById("sahm-printable-catalog-inner");
+      const targetElement = catalogRef.current;
       if (!targetElement) {
-        throw new Error("برجاء الانتقال لتبويب المعاينة أولاً");
+        throw new Error("برجاء الانتقال لتبويب المعاينة أولاً للتصوير الجرافيكي.");
       }
       
-      const canvas = await html2canvas(targetElement, {
-        useCORS: true,
-        allowTaint: true,
-        scale: 2,
-        backgroundColor: activeTheme === "white" ? "#ffffff" : "#020617"
-      });
+      const restoreStyles = sanitizeOklchStyles();
+      let canvas;
+      try {
+        canvas = await html2canvas(targetElement, {
+          useCORS: true,
+          allowTaint: true,
+          scale: 2,
+          backgroundColor: activeTheme === "white" ? "#ffffff" : "#020617",
+          onclone: handleHtml2CanvasClone
+        });
+      } finally {
+        restoreStyles();
+      }
       
       const dataUrl = canvas.toDataURL("image/png");
       
@@ -570,21 +939,20 @@ export default function SmartCatalogBuilder({
       setDownloadPngUrl(dataUrl);
       setDownloadPngName(fileName);
       
-      const savedFilesRaw = localStorage.getItem("sahm_media_center_files");
-      const savedFiles = savedFilesRaw ? JSON.parse(savedFilesRaw) : [];
+      const savedFiles = getMediaCenterFiles();
       
       const newMediaId = `media_img_${Date.now()}`;
       const newFile = {
         id: newMediaId,
         name: fileName,
-        type: "image",
-        category: "templates",
+        type: "image" as const,
+        category: "templates" as const,
         url: dataUrl,
         size: `${Math.round(dataUrl.length / 1300)} كيلوبايت`,
         date: new Date().toLocaleDateString("ar-SA")
       };
       
-      localStorage.setItem("sahm_media_center_files", JSON.stringify([newFile, ...savedFiles]));
+      saveMediaCenterFiles([newFile, ...savedFiles]);
       
       triggerNotification("تم إنشاء وتحميل صورة الكتالوج وحفظها بمكتبة الوسائط! 🖼️💾", "success");
       addTimelineEvent(catalogItems[0].productId, `تم حفظ وتحميل صورة الكتالوج ${catalogTitle}`);
@@ -608,16 +976,23 @@ export default function SmartCatalogBuilder({
       let imgDataUri = downloadPngUrl;
       const safeTitle = catalogTitle.replace(/[\\/*?:"<>|]/g, "").replace(/\s+/g, "_");
       
-      const targetElement = document.getElementById("sahm-printable-catalog-inner");
+      const targetElement = catalogRef.current;
       if (targetElement) {
         if (!imgDataUri) {
           try {
-            const canvas = await html2canvas(targetElement, {
-              useCORS: true,
-              allowTaint: true,
-              scale: 1.5,
-              backgroundColor: activeTheme === "white" ? "#ffffff" : "#020617"
-            });
+            const restoreStyles = sanitizeOklchStyles();
+            let canvas;
+            try {
+              canvas = await html2canvas(targetElement, {
+                useCORS: true,
+                allowTaint: true,
+                scale: 2,
+                backgroundColor: activeTheme === "white" ? "#ffffff" : "#020617",
+                onclone: handleHtml2CanvasClone
+              });
+            } finally {
+              restoreStyles();
+            }
             imgDataUri = canvas.toDataURL("image/png");
             setDownloadPngUrl(imgDataUri);
             setDownloadPngName(`بطاقات_${safeTitle}_${Date.now()}.png`);
@@ -634,11 +1009,25 @@ export default function SmartCatalogBuilder({
               format: "a4"
             });
             if (imgDataUri) {
-              pdf.addImage(imgDataUri, "PNG", 0, 0, 210, 297);
+              const imgWidth = 210;
+              const pageHeight = 297;
+              const canvasHeight = targetElement.clientHeight || 500;
+              const canvasWidth = targetElement.clientWidth || 800;
+              const imgHeight = (canvasHeight * imgWidth) / canvasWidth;
+              let heightLeft = imgHeight;
+              let position = 0;
+              
+              pdf.addImage(imgDataUri, "PNG", 0, position, imgWidth, imgHeight);
+              heightLeft -= pageHeight;
+              
+              while (heightLeft >= 0) {
+                position = heightLeft - imgHeight;
+                pdf.addPage();
+                pdf.addImage(imgDataUri, "PNG", 0, position, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+              }
             } else {
-              pdf.setFont("helvetica", "bold");
-              pdf.setFontSize(22);
-              pdf.text(catalogTitle, 105, 40, { align: "center" });
+              throw new Error("عذراً، لم تتوفر الصورة الملتقطة لإنشاء PDF");
             }
             pdfDataUri = pdf.output("datauristring");
             setDownloadPdfUrl(pdfDataUri);
@@ -649,22 +1038,21 @@ export default function SmartCatalogBuilder({
         }
       }
       
-      const savedFilesRaw = localStorage.getItem("sahm_media_center_files");
-      const savedFiles = savedFilesRaw ? JSON.parse(savedFilesRaw) : [];
+      const savedFiles = getMediaCenterFiles();
       
       const fileId = `media_catalog_${Date.now()}`;
       const newFile = {
         id: fileId,
         name: `كتالوج_${safeTitle}_${Date.now()}.pdf`,
-        type: "pdf",
-        category: "documents",
+        type: "pdf" as const,
+        category: "documents" as const,
         url: pdfDataUri || imgDataUri || "https://images.unsplash.com/photo-1547887537-6158d64c35b3?auto=format&fit=crop&q=80&w=200",
         size: "٥٢٠ كيلوبايت",
         date: new Date().toLocaleDateString("ar-SA")
       };
 
       const updated = [newFile, ...savedFiles];
-      localStorage.setItem("sahm_media_center_files", JSON.stringify(updated));
+      saveMediaCenterFiles(updated);
       
       triggerNotification("✓ تم حفظ الكتالوج بمركز وسائط سهم بنجاح! يمكن رؤيتها بتبويب وسائط الـ ERP.", "success");
       addTimelineEvent(catalogItems[0].productId, `تم حفظ الكتالوج ${catalogTitle} بمركز وسائط سهم.`);
@@ -1532,65 +1920,16 @@ export default function SmartCatalogBuilder({
 
                   {/* Outer Wrap target for clean print stylesheet */}
                   <div id="sahm-printable-catalog-outer-wrap" className="w-full">
-                    {/* Inner Target for Canvas capture */}
-                    <div id="sahm-printable-catalog-inner" className={`p-8 rounded-3xl border space-y-6 ${currentThemeClasses.bg}`} style={{ borderWidth: "2px" }}>
-                      
-                      {/* Catalog Custom Header Banner inside Preview */}
-                      <div className="border-b pb-4 flex justify-between items-center" style={{ borderColor: activeTheme === "white" ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)" }}>
-                        <div>
-                          <h2 className={`text-lg font-black ${currentThemeClasses.heading}`}>{catalogTitle}</h2>
-                          <p className="text-[10px] text-gray-500 font-sans">العلامة التجارية: سهم النخبة الموحد • {new Date().toLocaleDateString("ar-SA")}</p>
-                        </div>
-                        <div className="text-left no-print">
-                          <span className={`text-[9.5px] uppercase font-mono font-black ${currentThemeClasses.badge}`}>
-                            {catalogLanguage === "ar" ? "اللغة: العربية" : catalogLanguage === "en" ? "English Version" : "بين الثقافات Ar/En"}
-                          </span>
-                        </div>
-                      </div>
-
-                       <div className="space-y-6 divide-y divide-slate-800/15">
-                        {catalogItems.map((item, index) => (
-                          <div key={index} className="pt-4 flex flex-col md:flex-row gap-5 items-start">
-                            <img src={item.image} alt={item.title} className="w-24 h-24 rounded-2xl object-cover bg-black/40 border-none shrink-0" referrerPolicy="no-referrer" />
-                            <div className="space-y-2 w-full text-right">
-                              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${currentThemeClasses.badge}`}>{item.category}</span>
-                              <h4 className={`text-sm font-black ${currentThemeClasses.heading}`}>{item.title}</h4>
-                              <p className={`text-xs leading-relaxed ${currentThemeClasses.accText}`}>{item.desc}</p>
-                              
-                              {/* 🌸 المميزات الإعلانية للمنتج */}
-                              <div className="flex flex-wrap gap-1.5 pt-1">
-                                <span className="text-[8.5px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">✓ عالي الجودة والموثوقية ومعزز بالكامل</span>
-                                <span className="text-[8.5px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">✓ تغليف فاخر مخصص للهدايا</span>
-                                <span className="text-[8.5px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold">✓ ضمان سهم المعتمد لمدة سنتين</span>
-                              </div>
-
-                              <div className={`flex flex-wrap gap-4 text-[10.5px] pt-1.5 ${activeTheme === "white" ? "text-slate-500" : "text-gray-400"}`}>
-                                {priceOption === "with" && (
-                                  <span>السعر: <strong className={currentThemeClasses.priceColor}>{item.price} ر.س</strong> {activeTheme === "offers" && <span className="line-through text-gray-500 font-mono text-[9px]">{item.originalPrice} ر.س</span>}</span>
-                                )}
-                                <span>رمز SKU: {item.sku}</span>
-                                {stockOption === "show" && <span>الكمية: {item.stock} وحدات</span>}
-                              </div>
-
-                              {/* 🏬 بيانات المتجر المعتمد */}
-                              <div className="border-t border-dashed border-gray-800/20 pt-1.5 mt-1 flex flex-wrap items-center gap-2 text-[9px] text-gray-450 leading-none">
-                                <span className="font-bold">🏬 المتجر والمشغل المعتمد:</span>
-                                <span>سهم النخبة الموحد للتجارة</span>
-                                <span className="text-gray-600">•</span>
-                                <span>الرقم الموحد: 920033033</span>
-                                <span className="text-gray-600">•</span>
-                                <span>الرقم الضريبي الموحد: 302004509800003</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="border-t pt-4 text-center text-[9px] text-gray-500" style={{ borderColor: activeTheme === "white" ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)" }}>
-                        صُمّم وصيغ تلقائياً تحت إهداء برعاية منصة سهم الرقمية المعتمدة 👑
-                      </div>
-
-                    </div>
+                    <CatalogPreview
+                      ref={catalogRef}
+                      catalogTitle={catalogTitle}
+                      catalogLanguage={catalogLanguage}
+                      catalogItems={catalogItems}
+                      activeTheme={activeTheme}
+                      currentThemeClasses={currentThemeClasses}
+                      priceOption={priceOption}
+                      stockOption={stockOption}
+                    />
                   </div>
                 </div>
 
@@ -1776,3 +2115,100 @@ export default function SmartCatalogBuilder({
     </div>
   );
 }
+
+// ======================= SINGLE SOURCE OF TRUTH CATALOG PREVIEW =======================
+interface CatalogPreviewProps {
+  catalogTitle: string;
+  catalogLanguage: string;
+  catalogItems: CatalogGenerationItem[];
+  activeTheme: string;
+  currentThemeClasses: any;
+  priceOption: string;
+  stockOption: string;
+}
+
+const CatalogPreview = React.forwardRef<HTMLDivElement, CatalogPreviewProps>(({
+  catalogTitle,
+  catalogLanguage,
+  catalogItems,
+  activeTheme,
+  currentThemeClasses,
+  priceOption,
+  stockOption
+}, ref) => {
+  return (
+    <div 
+      ref={ref}
+      id="sahm-printable-catalog-inner" 
+      className={`p-8 rounded-3xl border space-y-6 ${currentThemeClasses.bg}`} 
+      style={{ 
+        borderWidth: "2px", 
+        direction: "rtl", 
+        textAlign: "right",
+        fontFamily: "'Tajawal', 'Cairo', 'Inter', system-ui, sans-serif" 
+      }}
+      dir="rtl"
+    >
+      {/* Catalog Custom Header Banner inside Preview */}
+      <div 
+        className="border-b pb-4 flex justify-between items-center" 
+        style={{ borderColor: activeTheme === "white" ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)" }}
+      >
+        <div>
+          <h2 className={`text-lg font-black ${currentThemeClasses.heading}`}>{catalogTitle}</h2>
+          <p className="text-[10px] text-gray-500 font-sans">العلامة التجارية: سهم النخبة الموحد • {new Date().toLocaleDateString("ar-SA")}</p>
+        </div>
+        <div className="text-left no-print">
+          <span className={`text-[9.5px] uppercase font-mono font-black ${currentThemeClasses.badge}`}>
+            {catalogLanguage === "ar" ? "اللغة: العربية" : catalogLanguage === "en" ? "English Version" : "بين الثقافات Ar/En"}
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-6 divide-y divide-slate-800/15">
+        {catalogItems.map((item, index) => (
+          <div key={index} className="pt-4 flex flex-col md:flex-row gap-5 items-start">
+            <img src={item.image} alt={item.title} className="w-24 h-24 rounded-2xl object-cover bg-black/40 border-none shrink-0" referrerPolicy="no-referrer" />
+            <div className="space-y-2 w-full text-right">
+              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${currentThemeClasses.badge}`}>{item.category}</span>
+              <h4 className={`text-sm font-black ${currentThemeClasses.heading}`}>{item.title}</h4>
+              <p className={`text-xs leading-relaxed ${currentThemeClasses.accText}`}>{item.desc}</p>
+              
+              {/* 🌸 المميزات الإعلانية للمنتج */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <span className="text-[8.5px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">✓ عالي الجودة والموثوقية ومعزز بالكامل</span>
+                <span className="text-[8.5px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">✓ تغليف فاخر مخصص للهدايا</span>
+                <span className="text-[8.5px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold">✓ ضمان سهم المعتمد لمدة سنتين</span>
+              </div>
+
+              <div className={`flex flex-wrap gap-4 text-[10.5px] pt-1.5 ${activeTheme === "white" ? "text-slate-500" : "text-gray-400"}`}>
+                {priceOption === "with" && (
+                  <span>السعر: <strong className={currentThemeClasses.priceColor}>{item.price} ر.س</strong> {activeTheme === "offers" && item.originalPrice && <span className="line-through text-gray-500 font-mono text-[9px]">{item.originalPrice} ر.س</span>}</span>
+                )}
+                <span>رمز SKU: {item.sku}</span>
+                {stockOption === "show" && <span>الكمية: {item.stock} وحدات</span>}
+              </div>
+
+              {/* 🏬 بيانات المتجر المعتمد */}
+              <div className="border-t border-dashed border-gray-800/20 pt-1.5 mt-1 flex flex-wrap items-center gap-2 text-[9px] text-gray-450 leading-none">
+                <span className="font-bold">🏬 المتجر والمشغل المعتمد:</span>
+                <span>سهم النخبة الموحد للتجارة</span>
+                <span className="text-gray-600">•</span>
+                <span>الرقم الموحد: 920033033</span>
+                <span className="text-gray-600">•</span>
+                <span>الرقم الضريبي الموحد: 302004509800003</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="border-t pt-4 text-center text-[9px] text-gray-500" style={{ borderColor: activeTheme === "white" ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)" }}>
+        صُمّم وصيغ تلقائياً تحت إهداء برعاية منصة سهم الرقمية المعتمدة 👑
+      </div>
+    </div>
+  );
+});
+
+CatalogPreview.displayName = "CatalogPreview";
+

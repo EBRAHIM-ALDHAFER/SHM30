@@ -4,6 +4,7 @@ import {
   Layers, Database, BarChart, Download, Sparkles, FolderPlus, Info, ZoomIn, Eye, ShieldCheck, Settings, Lock
 } from "lucide-react";
 import { ThemeColors, User } from "../types";
+import { getMediaCenterFiles, saveMediaCenterFiles } from "../utils/safeStorage";
 
 interface MediaFile {
   id: string;
@@ -64,62 +65,14 @@ export default function MediaCenter({
   const perms = rolePermissions[userRole] || { view: true, upload: true, delete: true, manage_folders: true, copy_url: true };
 
   const [showConfigPanel, setShowConfigPanel] = useState(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(() => {
-    const saved = localStorage.getItem("sahm_media_center_files");
-    return saved ? JSON.parse(saved) : [
-      {
-        id: "m1",
-        name: "دهن عود كلمنتان الملكي.jpg",
-        type: "image",
-        category: "product",
-        url: "https://images.unsplash.com/photo-1616949755610-8c9bbc08f138?auto=format&fit=crop&q=80&w=300",
-        size: "١.٢ ميجابايت",
-        date: "٢٠٢٦/٠٦/٠٢"
-      },
-      {
-        id: "m2",
-        name: "زعفران ناقيل سوبر فاخر.jpg",
-        type: "image",
-        category: "product",
-        url: "https://images.unsplash.com/photo-1509358271058-acd22cc93898?auto=format&fit=crop&q=80&w=300",
-        size: "٨٥٠ كيلوبايت",
-        date: "٢٠٢٦/٠٦/٠١"
-      },
-      {
-        id: "m3",
-        name: "سند استلام ضريبة القيمة المضافة Zakat.pdf",
-        type: "pdf",
-        category: "documents",
-        url: "#",
-        size: "٢.٤ ميجابايت",
-        date: "٢٠٢٦/٠٥/٢٨"
-      },
-      {
-        id: "m4",
-        name: "رمز استجابة الفاتورة الضريبية المعتمد Zatca QR.png",
-        type: "qr",
-        category: "documents",
-        url: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=SahmERP-310499221100003",
-        size: "٤٥ كيلوبايت",
-        date: "٢٠٢٦/٠٦/٠٢"
-      },
-      {
-        id: "m5",
-        name: "شعار متجر مراسيم الطيب الرسمي.png",
-        type: "image",
-        category: "templates",
-        url: "https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&q=80&w=200",
-        size: "٣٢٠ كيلوبايت",
-        date: "٢٠٢٦/٠٥/١٥"
-      }
-    ];
+    return getMediaCenterFiles() as any[];
   });
 
   useEffect(() => {
-    localStorage.setItem("sahm_media_center_files", JSON.stringify(mediaFiles));
+    saveMediaCenterFiles(mediaFiles as any[]);
   }, [mediaFiles]);
 
   const handleDrag = (e: React.DragEvent) => {
@@ -175,7 +128,7 @@ export default function MediaCenter({
 
         setMediaFiles(prev => {
           const updated = [newFile, ...prev];
-          localStorage.setItem("sahm_media_center_files", JSON.stringify(updated));
+          saveMediaCenterFiles(updated as any[]);
           return updated;
         });
         triggerNotification(`تم رفع واستضافة ملف الوسائط: ${file.name} بنجاح 🖼️`, "success");
@@ -193,7 +146,7 @@ export default function MediaCenter({
     }
     setMediaFiles(prev => {
       const updated = prev.filter(f => f.id !== id);
-      localStorage.setItem("sahm_media_center_files", JSON.stringify(updated));
+      saveMediaCenterFiles(updated as any[]);
       return updated;
     });
     triggerNotification(`تم حذف ملف الوسائط: ${name} نهائياً`, "alert");

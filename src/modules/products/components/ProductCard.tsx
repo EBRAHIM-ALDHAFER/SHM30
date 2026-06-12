@@ -27,23 +27,26 @@ export function ProductCard({
   return (
     <div
       onClick={onSelect}
-      className={`rounded-xl p-4 border flex flex-col justify-between transition-all cursor-pointer relative ${
+      className={`rounded-xl p-4 border flex flex-col justify-between transition-all duration-300 cursor-pointer relative hover:scale-[1.02] hover:shadow-xl ${
         isSelected
-          ? "bg-slate-900 border-amber-500 ring-1 ring-amber-500/20"
-          : "bg-slate-950/60 hover:bg-slate-900 border-slate-800"
+          ? "border-amber-500 ring-1 ring-amber-500/30 shadow-[0_0_15px_rgba(212,175,55,0.15)]"
+          : "border-slate-800/80 hover:border-slate-700/80"
       }`}
+      style={{
+        background: isSelected
+          ? `radial-gradient(circle at top right, rgba(212, 175, 55, 0.08) 0%, rgba(13, 21, 39, 0.95) 100%)`
+          : `radial-gradient(circle at top right, rgba(255, 255, 255, 0.01) 0%, rgba(9, 15, 29, 0.9) 100%)`
+      }}
     >
       <div>
         <div className="flex justify-between items-center mb-3">
-          <span className="text-[9px] font-bold py-0.5 px-2 rounded bg-slate-900 border border-slate-800 text-gray-400 font-mono">
-            {product.sku}
-          </span>
+          {/* SKU badge removed per user request */}
           <span
             className={`text-[9px] font-black py-0.5 px-2 rounded-full ${
               isOut
                 ? "bg-red-500/10 text-red-400"
                 : isLow
-                ? "bg-amber-500/10 text-amber-505"
+                ? "bg-amber-500/10 text-amber-500"
                 : "bg-emerald-500/10 text-emerald-400"
             }`}
           >
@@ -56,7 +59,8 @@ export function ProductCard({
       </div>
 
       {/* Money figures */}
-      <div className="border-t border-slate-800/80 pt-3 mt-4 flex justify-between items-center">
+      <div className="pt-3 mt-4 flex justify-between items-center relative">
+        <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-amber-500/20 to-transparent" />
         <div>
           <span className="text-[9px] text-gray-500 block">سعر البيع</span>
           <span className="text-xs font-bold text-emerald-400 font-mono">{formatMoney(product.price)}</span>
@@ -72,7 +76,8 @@ export function ProductCard({
       </div>
 
       {/* Interactive promotion indicators */}
-      <div className="flex gap-1.5 mt-3 pt-2.5 border-t border-slate-800/60">
+      <div className="flex gap-1.5 mt-3 pt-2.5 relative">
+        <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-amber-500/15 to-transparent" />
         <button
           onClick={(e) => {
             e.stopPropagation();

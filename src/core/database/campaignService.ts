@@ -27,13 +27,15 @@ export interface Campaign {
 const LS_KEY = "sahm_product_campaigns";
 
 const getMode = () => {
-  return (import.meta as any).env?.VITE_DATA_MODE || (typeof localStorage !== "undefined" && localStorage.getItem("sahm_supabase_connected") === "true" ? "production" : "demo");
+  const mode = import.meta.env.VITE_DATA_MODE;
+  if (mode === "supabase" || mode === "production") return "production";
+  return "demo";
 };
 
 export const campaignService = {
   getAll: async (activeStoreId?: string): Promise<Campaign[]> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.getCampaigns(activeStoreId);
     }
     try {
@@ -55,7 +57,7 @@ export const campaignService = {
 
   create: async (item: Campaign): Promise<Campaign> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveCampaign(item);
     }
     try {
@@ -73,7 +75,7 @@ export const campaignService = {
     if (!item) return null;
     const updated = { ...item, ...updates, updated_at: new Date().toISOString() };
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveCampaign(updated);
     }
     try {
@@ -87,7 +89,7 @@ export const campaignService = {
 
   delete: async (id: string): Promise<boolean> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.deleteCampaign(id);
     }
     try {

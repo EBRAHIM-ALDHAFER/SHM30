@@ -96,17 +96,19 @@ export default function FinancialStatements({ entries, accounts, theme }: Financ
     
     const fixedAssetsVehicles = getAccountBalance("1201");
     const fixedAssetsMachinery = getAccountBalance("1202");
+    const accumDepr = getAccountBalance("2102");
     
     const totalCurrentAssets = cashBox + bankAlrajhi + bankSnb + advances + ar + inventory;
-    const totalFixedAssets = fixedAssetsVehicles + fixedAssetsMachinery;
+    // Accumulated depreciation is a contra-asset subtracted from fixed assets
+    const totalFixedAssets = fixedAssetsVehicles + fixedAssetsMachinery - accumDepr;
     const totalAssets = totalCurrentAssets + totalFixedAssets;
 
     const ap = getAccountBalance("2101");
-    const accumDepr = getAccountBalance("2102");
     const vatPayable = getAccountBalance("2103");
     const loans = getAccountBalance("2104");
 
-    const totalLiabilities = ap - accumDepr + vatPayable + loans;
+    // Accumulated depreciation has been moved to contra-assets
+    const totalLiabilities = ap + vatPayable + loans;
 
     const capital = getAccountBalance("3101");
     const retainedPrev = getAccountBalance("3102");

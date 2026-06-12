@@ -19,7 +19,7 @@ const DEFAULT_EMPLOYEES: PayrollEmployee[] = [
 
 // Default branches matching system configuration
 const DEFAULT_BRANCHES = [
-  { id: "br_riyadh_main", name: "فرع الرياض الرئيسي", city: "الرياض", manager: "عبدالله بن فهد" },
+  { id: "branch_riyadh_main", name: "فرع الرياض الرئيسي", city: "الرياض", manager: "عبدالله بن فهد" },
   { id: "br_jeddah_int", name: "فرع جدة - ردسي مول", city: "جدة", manager: "أنس القرني" },
   { id: "br_dammam", name: "فرع مجمع مارينا مول", city: "الدمام", manager: "رائد المطيري" },
   { id: "br_makkah", name: "فرع العتبيات - مكة المكرمة", city: "مكة المكرمة", manager: "شرف الهذلي" }
@@ -256,7 +256,7 @@ export default function CustomStatements({
     invoices.forEach((inv) => {
       // We decide branch allocation based on customer name string hash
       const hash = inv.customer.charCodeAt(0) + inv.id.charCodeAt(inv.id.length - 1);
-      const branchesList = ["br_riyadh_main", "br_jeddah_int", "br_dammam", "br_makkah"];
+      const branchesList = ["branch_riyadh_main", "br_jeddah_int", "br_dammam", "br_makkah"];
       const allocatedBranchId = branchesList[hash % 4];
 
       if (allocatedBranchId === activeBranch.id) {
@@ -280,7 +280,7 @@ export default function CustomStatements({
     // Allocate expenses based on branch description
     sampleExpenses.forEach((exp, idx) => {
       const expHash = exp.description.charCodeAt(0) + idx;
-      const branchesList = ["br_riyadh_main", "br_jeddah_int", "br_dammam", "br_makkah"];
+      const branchesList = ["branch_riyadh_main", "br_jeddah_int", "br_dammam", "br_makkah"];
       const allocatedBranchId = branchesList[expHash % 4];
 
       if (allocatedBranchId === activeBranch.id) {
@@ -359,9 +359,9 @@ export default function CustomStatements({
       { key: "type", label: "النوع" },
       { key: "description", label: "البيان والعملية التفصيلية" },
       { key: "ref", label: "المرجع" },
-      { key: "debit", label: "مدين (+)", format: (v: number) => v > 0 ? v.toLocaleString() + " ر.س" : "-" },
-      { key: "credit", label: "دائن (-)", format: (v: number) => v > 0 ? v.toLocaleString() + " ر.س" : "-" },
-      { key: "runningBalance", label: "الرصيد الجاري", format: (v: number) => v.toLocaleString() + " ر.س" }
+      { key: "debit", label: "مدين (+)", format: (v: number) => (v ?? 0) > 0 ? (v ?? 0).toLocaleString() + " ر.س" : "-" },
+      { key: "credit", label: "دائن (-)", format: (v: number) => (v ?? 0) > 0 ? (v ?? 0).toLocaleString() + " ر.س" : "-" },
+      { key: "runningBalance", label: "الرصيد الجاري", format: (v: number) => (v ?? 0).toLocaleString() + " ر.س" }
     ];
 
     exportToPDF(`كشف حساب تفصيلي - سهم ERP`, cols, filteredLines, subtitleName);
@@ -459,7 +459,7 @@ export default function CustomStatements({
                     </div>
                     <div className="flex justify-between border-t pt-2 mt-2" style={{ borderColor: theme.border }}>
                       <span className="text-gray-400">الرصيد في شجرة الذمم:</span>
-                      <span className="text-emerald-400 font-mono">{activeCustomer.balance.toLocaleString()} ر.س</span>
+                      <span className="text-emerald-400 font-mono">{(activeCustomer?.balance ?? 0).toLocaleString()} ر.س</span>
                     </div>
                   </div>
                 )}
@@ -496,7 +496,7 @@ export default function CustomStatements({
                     </div>
                     <div className="flex justify-between border-t pt-2 mt-2" style={{ borderColor: theme.border }}>
                       <span className="text-gray-400">الرصيد الدائن المستحق:</span>
-                      <span className="text-rose-400 font-mono">{activeSupplier.balance.toLocaleString()} ر.س</span>
+                      <span className="text-rose-400 font-mono">{(activeSupplier?.balance ?? 0).toLocaleString()} ر.س</span>
                     </div>
                   </div>
                 )}
@@ -525,15 +525,15 @@ export default function CustomStatements({
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-400">الراتب الأساسي:</span>
-                      <span style={{ color: theme.text }}>{activeEmployee.basicSalary.toLocaleString()} ر.س</span>
+                      <span style={{ color: theme.text }}>{(activeEmployee.basicSalary ?? 0).toLocaleString()} ر.س</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-400">البدلات الشهرية:</span>
-                      <span className="text-emerald-400">+{activeEmployee.allowances.toLocaleString()} ر.س</span>
+                      <span className="text-emerald-400">+{(activeEmployee.allowances ?? 0).toLocaleString()} ر.س</span>
                     </div>
                     <div className="flex justify-between text-rose-400 border-t pt-2 mt-2" style={{ borderColor: theme.border }}>
                       <span className="text-gray-400">الاستقطاعات والتأمينات:</span>
-                      <span>-{activeEmployee.deductions.toLocaleString()} ر.س</span>
+                      <span>-{(activeEmployee.deductions ?? 0).toLocaleString()} ر.س</span>
                     </div>
                   </div>
                 )}
@@ -686,13 +686,13 @@ export default function CustomStatements({
                         <td className="py-2 px-2 text-[11px]" style={{ color: theme.text }}>{line.description}</td>
                         <td className="py-2 px-2 font-mono text-[10px] text-gray-400">{line.ref}</td>
                         <td className="py-2 px-2 text-emerald-400 font-mono">
-                          {line.debit > 0 ? line.debit.toLocaleString("ar-SA") + " ر.س" : "-"}
+                          {(line.debit ?? 0) > 0 ? (line.debit ?? 0).toLocaleString("ar-SA") + " ر.س" : "-"}
                         </td>
                         <td className="py-2 px-2 text-rose-400 font-mono">
-                          {line.credit > 0 ? line.credit.toLocaleString("ar-SA") + " ر.س" : "-"}
+                          {(line.credit ?? 0) > 0 ? (line.credit ?? 0).toLocaleString("ar-SA") + " ر.س" : "-"}
                         </td>
                         <td className="py-2 px-2 text-left font-mono text-gray-300">
-                          {line.runningBalance.toLocaleString("ar-SA")} ر.س
+                          {(line.runningBalance ?? 0).toLocaleString("ar-SA")} ر.س
                         </td>
                       </tr>
                     ))
@@ -707,19 +707,19 @@ export default function CustomStatements({
                 <div className="p-3 bg-emerald-500/10 rounded-xl text-center">
                   <span className="text-[9px] text-gray-400 block font-bold">إجمالي المطالبات المدينة (Debit Pool):</span>
                   <span className="text-sm font-black text-emerald-400 font-mono">
-                    {totals.debit.toLocaleString("ar-SA")} ر.س
+                    {(totals.debit ?? 0).toLocaleString("ar-SA")} ر.س
                   </span>
                 </div>
                 <div className="p-3 bg-rose-500/10 rounded-xl text-center">
                   <span className="text-[9px] text-gray-400 block font-bold">إجمالي الدفعات والتنزيلات (Credit Pool):</span>
                   <span className="text-sm font-black text-rose-400 font-mono">
-                    {totals.credit.toLocaleString("ar-SA")} ر.س
+                    {(totals.credit ?? 0).toLocaleString("ar-SA")} ر.س
                   </span>
                 </div>
                 <div className="p-3 rounded-xl text-center bg-gray-500/10">
                   <span className="text-[9px] text-gray-400 block font-bold">رصيد الحساب الختامي المتداول:</span>
                   <span className="text-sm font-black text-indigo-400 font-mono">
-                    {totals.balance.toLocaleString("ar-SA")} ر.س
+                    {(totals.balance ?? 0).toLocaleString("ar-SA")} ر.س
                   </span>
                 </div>
               </div>

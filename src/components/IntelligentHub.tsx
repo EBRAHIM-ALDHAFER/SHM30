@@ -6,6 +6,7 @@ import AutoPublish from "./AutoPublish";
 import SaaSBlueprint from "./SaaSBlueprint";
 import SahmBrain360 from "./SahmBrain360";
 import CompetitorMonitor from "./CompetitorMonitor";
+import CatalogOptimizer from "./CatalogOptimizer";
 
 interface IntelligentHubProps {
   theme: ThemeColors;
@@ -29,6 +30,9 @@ interface IntelligentHubProps {
   setActiveTab: (tab: string) => void;
   triggerNotification?: (text: string, type?: any) => void;
   addAuditLog?: (event: string, text: string) => void;
+
+  initialSubTab?: "sahm-brain" | "ai" | "publish" | "saas" | "competitors" | "catalog-health";
+  setSubTab?: (tab: "sahm-brain" | "ai" | "publish" | "saas" | "competitors" | "catalog-health") => void;
 }
 
 export default function IntelligentHub({
@@ -44,10 +48,16 @@ export default function IntelligentHub({
   setPrefillPublish,
   setActiveTab,
   triggerNotification = () => {},
-  addAuditLog = () => {}
+  addAuditLog = () => {},
+
+  initialSubTab = "catalog-health",
+  setSubTab: propSetSubTab,
 }: IntelligentHubProps) {
-  // Local sub-tabs matching the combined features
-  const [subTab, setSubTab] = useState<"sahm-brain" | "ai" | "publish" | "saas" | "competitors">("sahm-brain");
+  // Local sub-tabs matching the combined features with default catalog-health
+  const [localSubTab, setLocalSubTab] = useState<"sahm-brain" | "ai" | "publish" | "saas" | "competitors" | "catalog-health">(initialSubTab);
+
+  const subTab = propSetSubTab ? initialSubTab : localSubTab;
+  const setSubTab = propSetSubTab || setLocalSubTab;
 
   const totalRevenue = invoices.filter(i => i.type === 'sale').reduce((sum, i) => sum + i.total, 0);
 
@@ -82,9 +92,18 @@ export default function IntelligentHub({
     const handleOpenNewCampaign = () => {
       setSubTab("publish");
     };
+    const handleOpenSaaS2030 = () => {
+      setSubTab("saas");
+    };
     window.addEventListener("sahm_open_new_campaign", handleOpenNewCampaign);
+    window.addEventListener("sahm_open_saas_2030", handleOpenSaaS2030);
+    window.addEventListener("sahm_open_saas", handleOpenSaaS2030);
+    window.addEventListener("sahm_open_saas_blueprint", handleOpenSaaS2030);
     return () => {
       window.removeEventListener("sahm_open_new_campaign", handleOpenNewCampaign);
+      window.removeEventListener("sahm_open_saas_2030", handleOpenSaaS2030);
+      window.removeEventListener("sahm_open_saas", handleOpenSaaS2030);
+      window.removeEventListener("sahm_open_saas_blueprint", handleOpenSaaS2030);
     };
   }, []);
 
@@ -122,7 +141,7 @@ export default function IntelligentHub({
             المنصة الذكية المتكاملة للأتمتة والنشر 🧠🚀
           </h2>
           <p className="text-xs max-w-2xl leading-relaxed" style={{ color: theme.muted }}>
-            دمجنا لك رؤية SaaS وهندسة قواعد البيانات، وأدوات تحليل المنتجات بالذكاء الاصطناعي، مع منصة النشر السحابي التلقائي في واجهة العمل الموحدة لتسريع العمليات وتجربة العملاء.
+            دمجنا لك رؤية سهم 2030 لرقمنة المنشآت وشرح بنية الأنظمة وبناء قواعد البيانات، مع أدوات تحليل المنتجات ونشاط النشر السحابي التلقائي في واجهة متكاملة وسلسة.
           </p>
         </div>
 
@@ -196,23 +215,6 @@ export default function IntelligentHub({
 
         <button
           type="button"
-          onClick={() => setSubTab("saas")}
-          className="flex-1 py-3 px-4 rounded-lg flex items-center justify-center gap-2.5 transition-all cursor-pointer select-none active:scale-[0.98]"
-          style={{
-            backgroundColor: subTab === "saas" ? theme.accent + "15" : "transparent",
-            color: subTab === "saas" ? theme.text : theme.muted,
-            border: subTab === "saas" ? `1px solid ${theme.accent}30` : "1px solid transparent"
-          }}
-        >
-          <Cpu className={`w-4 h-4 ${subTab === "saas" ? "text-emerald-500" : "text-gray-400"}`} />
-          <div className="text-right">
-            <span className="block text-xs font-black">رؤية SaaS والمنصات 🌐</span>
-            <span className="block text-[9px] font-medium opacity-80">هيكل قواعد البيانات وريديس واختبار API</span>
-          </div>
-        </button>
-
-        <button
-          type="button"
           onClick={() => setSubTab("competitors")}
           className="flex-1 py-3 px-4 rounded-lg flex items-center justify-center gap-2.5 transition-all cursor-pointer select-none active:scale-[0.98]"
           style={{
@@ -225,6 +227,23 @@ export default function IntelligentHub({
           <div className="text-right">
             <span className="block text-xs font-black">مراقبة المنافسين 🔍</span>
             <span className="block text-[9px] font-medium opacity-80">مراقبة أسعار وتنبيهات حية لمناديبك</span>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSubTab("catalog-health")}
+          className="flex-1 py-3 px-4 rounded-lg flex items-center justify-center gap-2.5 transition-all cursor-pointer select-none active:scale-[0.98]"
+          style={{
+            backgroundColor: subTab === "catalog-health" ? theme.accent + "15" : "transparent",
+            color: subTab === "catalog-health" ? theme.text : theme.muted,
+            border: subTab === "catalog-health" ? `1px solid ${theme.accent}30` : "1px solid transparent"
+          }}
+        >
+          <Award className={`w-4 h-4 ${subTab === "catalog-health" ? "text-amber-500 animate-pulse" : "text-gray-400"}`} />
+          <div className="text-right">
+            <span className="block text-xs font-black">تحسين وصحة الكتالوج 💎</span>
+            <span className="block text-[9px] font-medium opacity-80">إحصائيات الجودة وإصلاحات الذكاء الاصطناعي</span>
           </div>
         </button>
       </div>
@@ -273,18 +292,38 @@ export default function IntelligentHub({
           />
         )}
 
-        {subTab === "saas" && (
-          <SaaSBlueprint 
-            theme={theme} 
-            user={user}
-          />
+        {subTab === "competitors" && (
+          <div className="p-8 rounded-2xl border text-center space-y-4 max-w-lg mx-auto my-12 font-sans text-right" style={{ backgroundColor: theme.card, borderColor: theme.border }} dir="rtl">
+            <div className="w-14 h-14 bg-amber-500/10 border border-[#D4AF37]/35 rounded-full flex items-center justify-center mx-auto text-[#D4AF37] animate-pulse">
+              <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </div>
+            <h4 className="text-sm font-black text-white">منظومة رصد المنافسين المستقلة 📡</h4>
+            <p className="text-xs text-slate-400 leading-relaxed font-bold">
+              لقد تم فصل مكونات ورصد المنافسين بالكامل لتجنب الازدحام. تتوفر الآن كصفحة لوحة تحكم حية مستقلة داخل مركز القيادة الذكي.
+            </p>
+            <button 
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("sahm_navigate_command_center", { detail: { subTab: "competitors" } }));
+                if (triggerNotification) {
+                  triggerNotification("جاري انتقالك لتبويب رصد المنافسين المستقل ⚡", "success");
+                }
+              }}
+              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-black rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 mx-auto"
+            >
+              <span>فتح رصد المنافسين ⚡</span>
+            </button>
+          </div>
         )}
 
-        {subTab === "competitors" && (
-          <CompetitorMonitor
+        {subTab === "catalog-health" && (
+          <CatalogOptimizer
             theme={theme}
             products={products}
-            triggerNotification={triggerNotification}
+            setProducts={setProducts}
+            triggerNotification={(text, type) => triggerNotification?.(text, type)}
             addAuditLog={addAuditLog}
           />
         )}

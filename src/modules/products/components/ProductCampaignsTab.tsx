@@ -52,13 +52,13 @@ export function ProductCampaignsTab({
             <div key={c.id} className="p-2.5 rounded bg-slate-900 border border-slate-800 flex justify-between items-center text-[10px]">
               <div>
                 <span className="text-white font-bold block">{c.name}</span>
-                <span className="text-gray-500 text-[9px] block">الميزانية: {c.budget.toLocaleString()} ر.س</span>
+                <span className="text-gray-500 text-[9px] block">الميزانية: {(c.budget ?? 0).toLocaleString()} ر.س</span>
               </div>
               <div className="text-left">
                 <span className={`py-0.5 px-2 rounded-full font-black text-[8px] ${c.state === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-blue-500/10 text-blue-400'}`}>
                   {c.state === 'active' ? 'نشطة ومتفاعلة 🟢' : 'مجدولة 📅'}
                 </span>
-                {c.revenue > 0 && <span className="text-emerald-400 block font-mono text-[9px] mt-1">+{c.revenue.toLocaleString()} ر.س</span>}
+                {(c.revenue ?? 0) > 0 && <span className="text-emerald-400 block font-mono text-[9px] mt-1">+{ (c.revenue ?? 0).toLocaleString()} ر.س</span>}
               </div>
             </div>
           ))}

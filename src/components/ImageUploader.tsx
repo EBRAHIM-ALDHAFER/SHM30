@@ -1,13 +1,14 @@
 import React, { useRef, useState } from "react";
 import { ThemeColors } from "../types";
 import { Camera, Trash2, ShieldAlert, Image as ImageIcon, Search, Check, X } from "lucide-react";
+import { getMediaCenterFiles } from "../utils/safeStorage";
 
 interface ImageUploaderProps {
   imageUrl?: string;
   name: string;
   onChange: (base64: string | undefined) => void;
   theme: ThemeColors;
-  maxSizeMB?: number;
+maxSizeMB?: number;
 }
 
 export default function ImageUploader({
@@ -28,58 +29,7 @@ export default function ImageUploader({
   const [showMediaModal, setShowMediaModal] = useState(false);
   const [mediaSearch, setMediaSearch] = useState("");
   const [mediaFiles] = useState(() => {
-    try {
-      const saved = localStorage.getItem("sahm_media_center_files");
-      return saved ? JSON.parse(saved) : [
-        {
-          id: "m1",
-          name: "دهن عود كلمنتان الملكي.jpg",
-          type: "image",
-          category: "product",
-          url: "https://images.unsplash.com/photo-1616949755610-8c9bbc08f138?auto=format&fit=crop&q=80&w=300",
-          size: "١.٢ ميجابايت",
-          date: "٢٠٢٦/٠٦/٠٢"
-        },
-        {
-          id: "m2",
-          name: "زعفران ناقيل سوبر فاخر.jpg",
-          type: "image",
-          category: "product",
-          url: "https://images.unsplash.com/photo-1509358271058-acd22cc93898?auto=format&fit=crop&q=80&w=300",
-          size: "٨٥٠ كيلوبايت",
-          date: "٢٠٢٦/٠٦/٠١"
-        },
-        {
-          id: "m3",
-          name: "سند استلام ضريبة القيمة المضافة Zakat.pdf",
-          type: "pdf",
-          category: "documents",
-          url: "#",
-          size: "٢.٤ ميجابايت",
-          date: "٢٠٢٦/٠٥/٢٨"
-        },
-        {
-          id: "m4",
-          name: "رمز استجابة الفاتورة الضريبية المعتمد Zatca QR.png",
-          type: "qr",
-          category: "documents",
-          url: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=SahmERP-310499221100003",
-          size: "٤٥ كيلوبايت",
-          date: "٢٠٢٦/٠٦/٠٢"
-        },
-        {
-          id: "m5",
-          name: "شعار متجر مراسيم الطيب الرسمي.png",
-          type: "image",
-          category: "templates",
-          url: "https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&q=80&w=200",
-          size: "٣٢٠ كيلوبايت",
-          date: "٢٠٢٦/٠٥/١٥"
-        }
-      ];
-    } catch {
-      return [];
-    }
+    return getMediaCenterFiles();
   });
 
   // Helper to construct initials

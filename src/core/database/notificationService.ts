@@ -14,13 +14,15 @@ export interface SahmNotification {
 const LS_KEY = "sahm_notifications_hub";
 
 const getMode = () => {
-  return (import.meta as any).env?.VITE_DATA_MODE || (typeof localStorage !== "undefined" && localStorage.getItem("sahm_supabase_connected") === "true" ? "production" : "demo");
+  const mode = import.meta.env.VITE_DATA_MODE;
+  if (mode === "supabase" || mode === "production") return "production";
+  return "demo";
 };
 
 export const notificationService = {
   getAll: async (activeStoreId?: string): Promise<SahmNotification[]> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.getNotifications(activeStoreId);
     }
     try {
@@ -42,7 +44,7 @@ export const notificationService = {
 
   create: async (item: SahmNotification): Promise<SahmNotification> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveNotification(item);
     }
     try {
@@ -74,7 +76,7 @@ export const notificationService = {
     if (!item) return null;
     const updated = { ...item, ...updates };
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.saveNotification(updated);
     }
     try {
@@ -88,7 +90,7 @@ export const notificationService = {
 
   delete: async (id: string): Promise<boolean> => {
     const db = SahmDatabaseService.getInstance();
-    if (getMode() === "production" && db.isSupabaseConnected()) {
+    if (getMode() === "production") {
       return db.deleteNotification(id);
     }
     try {

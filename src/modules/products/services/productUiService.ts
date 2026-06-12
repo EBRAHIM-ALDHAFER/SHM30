@@ -1,7 +1,10 @@
 import { Product } from "../../../types";
 
-export const formatMoney = (n: number) => {
-  return n.toLocaleString("ar-SA") + " ر.س";
+export const formatMoney = (n: number | any) => {
+  if (n === undefined || n === null || isNaN(Number(n))) {
+    return "0 ر.س";
+  }
+  return Number(n).toLocaleString("ar-SA") + " ر.س";
 };
 
 export const getProductHealth = (prod: Product) => {

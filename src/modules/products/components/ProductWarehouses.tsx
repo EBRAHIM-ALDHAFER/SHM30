@@ -39,6 +39,7 @@ interface ProductWarehousesProps {
   triggerNotification?: (text: string, type: any) => void;
   addAuditLog?: (event: string, text: string) => void;
   activeWarehouseId?: string;
+  onAddWarehouse?: () => void;
 }
 
 export function ProductWarehouses({
@@ -59,10 +60,11 @@ export function ProductWarehouses({
   setAuditDone,
   triggerNotification,
   addAuditLog,
-  activeWarehouseId
+  activeWarehouseId,
+  onAddWarehouse
 }: ProductWarehousesProps) {
   
-  const [selectedWhId, setSelectedWhId] = React.useState<string>(activeWarehouseId || warehouses[0]?.id || "wh_central_riyadh");
+  const [selectedWhId, setSelectedWhId] = React.useState<string>(activeWarehouseId || warehouses[0]?.id || "warehouse_1");
   const [activeMenuWhId, setActiveMenuWhId] = useState<string | null>(null);
 
   React.useEffect(() => {
@@ -465,171 +467,140 @@ export function ProductWarehouses({
   return (
     <div className="space-y-6 text-right font-sans relative">
       
-      <div className="border-r-4 border-amber-500 pr-4">
-        <h3 className="text-base font-black text-white">إدارة وحركة المستودعات الحية وسلاسل الإمداد 🏢</h3>
-        <p className="text-xs text-gray-400">إدارة الجرد المحاسبي المعملي، الربط اللوجيستي للفروع الذكية، ونقل السلع المبرمج</p>
-      </div>
+      <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-slate-900/40 p-4 rounded-xl border border-slate-800 relative z-20">
+        <div className="border-r-4 border-amber-500 pr-4">
+          <h3 className="text-base font-black text-white font-sans">إدارة وحركة المستودعات وجرد السلع</h3>
+          <p className="text-xs text-gray-400">إدارة الجرد المحاسبي المعملي، الربط اللوجيستي للفروع الذكية، ونقل السلع المبرمج</p>
+        </div>
 
-      {/* Warehouse Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 select-none">
-        {warehouses.map((wh) => {
-          const totalStockInWh = wh.items ? wh.items.reduce((sum, i) => sum + i.stock, 0) : 0;
-          const capacityPercentage = Math.min(100, Math.round((totalStockInWh / (wh.capacity || 5000)) * 100));
-          const isSelected = selectedWhId === wh.id;
-          const isArchived = (wh as any).isActive === false;
-
-          return (
-            <div 
-              key={wh.id} 
-              onClick={() => setSelectedWhId(wh.id)}
-              className={`p-5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden select-none active:scale-[0.98] ${
-                isArchived ? "opacity-60 grayscale-[30%]" : ""
-              } ${
-                isSelected 
-                  ? "bg-slate-850 border-amber-500 shadow-xl shadow-amber-500/5" 
-                  : "border-slate-800 bg-slate-900/60 hover:bg-slate-900 hover:border-slate-700"
-              }`}
-              style={{ borderColor: isSelected ? theme.accent : "" }}
+        {/* Unified Controls Toolbar */}
+        <div className="flex flex-wrap items-center gap-3 justify-end">
+          
+          {/* Active Warehouse Dropdown Selector */}
+          <div className="flex items-center gap-2 p-1.5 rounded-xl bg-slate-950/80 border border-slate-800">
+            <span className="text-xs text-gray-400 font-bold pr-1">المستودع النشط:</span>
+            <select
+              value={selectedWhId}
+              onChange={(e) => setSelectedWhId(e.target.value)}
+              className="bg-transparent border-none text-xs font-black text-amber-400 outline-none cursor-pointer pr-4 pl-1 font-sans"
             >
-              {isSelected && (
-                <span className="absolute top-0 left-0 w-full h-[3px]" style={{ backgroundColor: theme.accent }} />
-              )}
-              
-              <div className="flex justify-between items-center relative z-10 mb-2">
-                {/* Custom Action Menu Gear Dropdown */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(e) => handleDropdownToggle(wh.id, e)}
-                    className="p-1.5 rounded-lg hover:bg-slate-800 border-none bg-slate-900 text-gray-300 hover:text-white cursor-pointer transition-all active:scale-95"
-                  >
-                    <MoreVertical className="w-4 h-4" />
-                  </button>
+              {warehouses.map(w => (
+                <option key={w.id} value={w.id} className="bg-slate-950 text-white font-sans">
+                  {w.name} {w.type === 'main' ? '★' : ''} {(w as any).isActive === false ? '(مؤرشف)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
 
-                  {activeMenuWhId === wh.id && (
-                    <div className="absolute right-0 mt-1 w-44 rounded-xl border border-slate-800 bg-slate-950 p-1.5 shadow-2xl z-20 text-right space-y-1 text-xs">
-                      <button
-                        onClick={(e) => openEditModal(wh, e)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-2 text-gray-200 hover:text-white hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>📝 تعديل المستودع</span>
-                      </button>
-                      <button
-                        onClick={(e) => openLinkModal(wh, e)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-2 text-blue-400 hover:text-blue-300 hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>🔗 ربط بفرع معرض</span>
-                      </button>
-                      <button
-                        onClick={(e) => openAddProdModal(wh, e)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>📥 إضافة منتجات</span>
-                      </button>
-                      <button
-                        onClick={(e) => openTransferModal(wh, e)}
-                        className="w-full text-right flex items-center justify-between gap-2 px-3 py-2 text-amber-400 hover:text-amber-300 hover:bg-slate-900 rounded-lg border-none bg-transparent cursor-pointer font-sans"
-                      >
-                        <span>🔄 نقل مخزون دقيق</span>
-                      </button>
-                      <div className="h-px bg-slate-900 my-1" />
-                      <button
-                        onClick={(e) => handleToggleActiveWarehouse(wh, e)}
-                        className={`w-full text-right flex items-center justify-between gap-2 px-3 py-2 rounded-lg border-none bg-transparent cursor-pointer font-sans ${
-                          isArchived ? "text-emerald-400 hover:text-emerald-300" : "text-red-400 hover:text-red-300"
-                        }`}
-                      >
-                        <span>{isArchived ? "🟢 إعادة تنشيط" : "🗄️ تعطيل / أرشفة"}</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {onAddWarehouse && (
+              <button
+                type="button"
+                onClick={onAddWarehouse}
+                className="py-2 px-3 rounded-xl text-[11px] font-black bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 transition-all active:scale-95 cursor-pointer border-none font-sans"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ إضافة مستودع</span>
+              </button>
+            )}
+            
+            {selectedWh && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => openAddProdModal(selectedWh)}
+                  className="py-2 px-3 rounded-xl text-[11px] font-black bg-emerald-600 hover:bg-emerald-500 text-black flex items-center gap-1 transition-all active:scale-95 border-none font-sans"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ إضافة منتج</span>
+                </button>
 
-                <div className="flex items-center gap-2">
-                  <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
-                    wh.type === 'main' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'
-                  }`}>
-                    {wh.type === 'main' ? 'رئيسي مركزي 🌟' : 'مستودع فرعي'}
-                  </span>
-                  {isArchived && (
-                    <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-red-500/10 text-red-400">مؤرشف معطل</span>
-                  )}
-                </div>
-              </div>
+                <button
+                  type="button"
+                  onClick={() => openTransferModal(selectedWh)}
+                  className="py-2 px-3 rounded-xl text-[11px] font-black bg-amber-500 hover:bg-amber-400 text-black flex items-center gap-1 transition-all active:scale-95 border-none font-sans"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span>🔄 نقل مخزون</span>
+                </button>
 
-              <h4 className="text-sm font-black text-white flex items-center gap-1.5 justify-end mt-1">
-                <span>{wh.name}</span>
-                <WarehouseIcon className="w-4 h-4 text-amber-550" style={{ color: theme.accent }} />
-              </h4>
-              <p className="text-[10px] text-gray-400 mt-0.5">📍 الموقع: {wh.location}</p>
-              <p className="text-[10px] text-gray-400">👤 الأمين: <span className="font-bold text-gray-300">{wh.manager}</span></p>
+                <button
+                  type="button"
+                  onClick={() => openLinkModal(selectedWh)}
+                  className="py-2 px-3 rounded-xl text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-gray-200 flex items-center gap-1 transition-all active:scale-95 border border-slate-750 font-sans"
+                >
+                  <Link2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span>🔗 ربط بفرع</span>
+                </button>
 
-              <div className="space-y-1.5 pt-3 border-t border-slate-800/80 mt-3">
-                <div className="flex justify-between text-[10px] text-gray-400 font-bold font-mono">
-                  <span>سعة التخزين:</span>
-                  <span>{totalStockInWh} / {wh.capacity || 5000} وحدة ({capacityPercentage}%)</span>
-                </div>
-                
-                <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden">
-                  <div className="h-full bg-amber-500 rounded-full" style={{ width: `${capacityPercentage}%`, backgroundColor: theme.accent }} />
-                </div>
-              </div>
-            </div>
-          );
-        })}
+                <button
+                  type="button"
+                  onClick={() => openEditModal(selectedWh)}
+                  className="py-2 px-3 rounded-xl text-[11px] font-black bg-slate-800 hover:bg-slate-700 text-gray-200 flex items-center gap-1 transition-all active:scale-95 border border-slate-750 font-sans"
+                >
+                  <Settings className="w-3.5 h-3.5 text-gray-400" />
+                  <span>📝 تعديل البيانات</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => handleToggleActiveWarehouse(selectedWh, e)}
+                  className={`py-2 px-3 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer transition-all active:scale-95 border font-sans ${
+                    (selectedWh as any).isActive === false
+                      ? "bg-emerald-950/40 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/40"
+                      : "bg-red-950/40 border-red-500/30 text-red-400 hover:bg-red-900/40"
+                  }`}
+                >
+                  <span>{(selectedWh as any).isActive === false ? "🟢 تنشيط" : "🗄️ أرشفة"}</span>
+                </button>
+              </>
+            )}
+          </div>
+
+        </div>
       </div>
 
-      {/* 📦 Warehouse contents section with CLEAR Action Buttons */}
+      {/* 📦 Warehouse contents section */}
       {selectedWh && (
         <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/40 relative overflow-hidden space-y-5">
           <div className="absolute left-0 top-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
           
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3 border-b border-slate-800/60">
+          {/* Compact horizontal selected warehouse details status widget */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-xl bg-slate-950/60 border border-slate-850/80 text-xs">
             <div>
-              <h3 className="text-sm font-black text-white flex items-center gap-2">
-                <WarehouseIcon className="w-4 h-4 text-amber-500" style={{ color: theme.accent }} />
-                <span>محتويات ومخزون السلع في مستودع: <span className="text-amber-400" style={{ color: theme.accent }}>{selectedWh.name}</span></span>
-              </h3>
-              <p className="text-[10px] text-gray-500">موقع المستودع: {selectedWh.location} | سعة المستودع الكلية: {selectedWh.capacity} وحدة</p>
+              <span className="text-gray-500 block font-bold mb-1 font-sans">👤 المسؤول الأمين:</span>
+              <span className="font-black text-white text-[13px] font-sans">{selectedWh.manager || "غير معين"}</span>
             </div>
-
-            {/* Quick action buttons for the selected warehouse */}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openAddProdModal(selectedWh)}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-emerald-500 hover:bg-emerald-400 text-black flex items-center gap-1 cursor-pointer transition-all active:scale-95 border-none shadow"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ إضافة منتج للمستودع</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openTransferModal(selectedWh)}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-amber-500 hover:bg-amber-400 text-black flex items-center gap-1 cursor-pointer transition-all active:scale-95 border-none shadow"
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5" />
-                <span>🔄 نقل مخزون</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openLinkModal(selectedWh)}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 cursor-pointer transition-all active:scale-95 border-none shadow"
-              >
-                <Link2 className="w-3.5 h-3.5" />
-                <span>🔗 ربط المستودع بفرع</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openEditModal(selectedWh)}
-                className="py-1.5 px-3 rounded-lg text-[11px] font-black bg-slate-800 hover:bg-slate-750 text-gray-200 flex items-center gap-1 cursor-pointer transition-all active:scale-95 border border-slate-700"
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span>📝 تعديل البيانات</span>
-              </button>
+            <div>
+              <span className="text-gray-500 block font-bold mb-1 font-sans">📍 الموقع الجغرافي:</span>
+              <span className="text-gray-300 text-[13px] font-sans">{selectedWh.location || "غير محدد"}</span>
+            </div>
+            <div>
+              <span className="text-gray-500 block font-bold mb-1 font-sans">🟢 حالة التشغيل:</span>
+              <span className={`font-black text-[13px] font-sans ${(selectedWh as any).isActive !== false ? "text-emerald-400" : "text-red-400"}`}>
+                {(selectedWh as any).isActive !== false ? "نشط ومستقر" : "معطل / مؤرشف مؤقتاً"}
+              </span>
+            </div>
+            <div>
+              {(() => {
+                const totalStockInWh = selectedWh.items ? selectedWh.items.reduce((sum, i) => sum + i.stock, 0) : 0;
+                const capacityPercentage = Math.min(100, Math.round((totalStockInWh / (selectedWh.capacity || 5000)) * 100));
+                return (
+                  <>
+                    <div className="flex justify-between text-[10px] text-gray-400 font-bold mb-1 font-sans">
+                      <span>سعة التخزين:</span>
+                      <span>{totalStockInWh} / {selectedWh.capacity || 5000} وحدة ({capacityPercentage}%)</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden">
+                      <div className="h-full bg-amber-500 rounded-full" style={{ width: `${capacityPercentage}%`, backgroundColor: theme.accent }} />
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
-          
+
           <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950 text-xs text-right">
             <table className="w-full text-right border-collapse">
               <thead>
