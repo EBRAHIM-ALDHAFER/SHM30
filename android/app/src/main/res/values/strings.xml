@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">سهم OS</string>
+    <string name="title_activity_main">سهم OS</string>
+    <string name="package_name">com.sahmos.app</string>
+    <string name="custom_url_scheme">com.sahmos.app</string>
+</resources>
