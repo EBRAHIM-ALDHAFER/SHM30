@@ -6,25 +6,23 @@ import { branchService } from "./core/database/branchService";
 import { warehouseService } from "./core/database/warehouseService";
 import { posService } from "./core/database/posService";
 
-// Import custom views
-import Login from "./components/Login";
-import Dashboard from "./components/Dashboard";
-import Invoices from "./components/Invoices";
-import Customers from "./components/Customers";
-import Suppliers from "./components/Suppliers";
-import Reports from "./components/Reports";
-import HelpSupport from "./components/HelpSupport";
-import Settings from "./components/Settings";
-import ProductPromotionBuilder, { ProductPromotionBoundary } from "./components/ProductPromotionBuilder";
-import UnifiedActionSystem from "./components/UnifiedActionSystem";
-import UnifiedProfileHub from "./components/UnifiedProfileHub";
-import SahmIntegrationsHub from "./components/SahmIntegrationsHub";
-import FacilitySetup from "./components/FacilitySetup";
-import FacilityAndEstablishmentHub from "./components/FacilityAndEstablishmentHub";
-import OfflineSyncHUD from "./components/OfflineSyncHUD";
-import OnboardingWizard from "./components/OnboardingWizard";
-import SystemClientsManager from "./components/SystemClientsManager";
-
+// Lazy-loaded views (all major components loaded on demand)
+const Login = React.lazy(() => import("./components/Login"));
+const Dashboard = React.lazy(() => import("./components/Dashboard"));
+const Invoices = React.lazy(() => import("./components/Invoices"));
+const Customers = React.lazy(() => import("./components/Customers"));
+const Suppliers = React.lazy(() => import("./components/Suppliers"));
+const Reports = React.lazy(() => import("./components/Reports"));
+const HelpSupport = React.lazy(() => import("./components/HelpSupport"));
+const Settings = React.lazy(() => import("./components/Settings"));
+const ProductPromotionBuilder = React.lazy(() => import("./components/ProductPromotionBuilder"));
+const UnifiedActionSystem = React.lazy(() => import("./components/UnifiedActionSystem"));
+const UnifiedProfileHub = React.lazy(() => import("./components/UnifiedProfileHub"));
+const SahmIntegrationsHub = React.lazy(() => import("./components/SahmIntegrationsHub"));
+const FacilitySetup = React.lazy(() => import("./components/FacilitySetup"));
+const FacilityAndEstablishmentHub = React.lazy(() => import("./components/FacilityAndEstablishmentHub"));
+const OnboardingWizard = React.lazy(() => import("./components/OnboardingWizard"));
+const SystemClientsManager = React.lazy(() => import("./components/SystemClientsManager"));
 const Products = React.lazy(() => import("./modules/products/ProductsPage"));
 const HumanResources = React.lazy(() => import("./components/HumanResources"));
 const AIProductBuilder = React.lazy(() => import("./components/AIProductBuilder"));
@@ -50,14 +48,15 @@ const LoadingScreen = () => (
   </div>
 );
 
-// Enterprise Modular System Imports
-import UnifiedNotifications from "./components/UnifiedNotifications";
-import GlobalUnifiedSearch from "./components/GlobalUnifiedSearch";
-import AuditLogTimeline from "./components/AuditLogTimeline";
-import BackupRestoreSystem from "./components/BackupRestoreSystem";
-import SaaSSubscriptionEngine from "./components/SaaSSubscriptionEngine";
-import MySubscription from "./components/MySubscription";
-import ThemeStudioMarketplace from "./components/ThemeStudioMarketplace";
+// Enterprise Modular System (lazy)
+import OfflineSyncHUD from "./components/OfflineSyncHUD";
+const UnifiedNotifications = React.lazy(() => import("./components/UnifiedNotifications"));
+const GlobalUnifiedSearch = React.lazy(() => import("./components/GlobalUnifiedSearch"));
+const AuditLogTimeline = React.lazy(() => import("./components/AuditLogTimeline"));
+const BackupRestoreSystem = React.lazy(() => import("./components/BackupRestoreSystem"));
+const SaaSSubscriptionEngine = React.lazy(() => import("./components/SaaSSubscriptionEngine"));
+const MySubscription = React.lazy(() => import("./components/MySubscription"));
+const ThemeStudioMarketplace = React.lazy(() => import("./components/ThemeStudioMarketplace"));
 import { sahmIconPngUrl, sahmLogoPngUrl, sahmMiniMarkPngUrl, sahmSplashPngUrl } from "./assets/brand/sahm-brand-assets";
 
 // Import lucide icons for navigators
