@@ -2117,6 +2117,10 @@ async function startServer() {
         middlewareMode: true,
         hmr: process.env.DISABLE_HMR !== "true",
         watch: process.env.DISABLE_HMR === "true" ? null : {},
+        allowedHosts: true,
+      },
+      optimizeDeps: {
+        entries: ["src/**/*.{ts,tsx}", "index.html"],
       },
       appType: "spa",
     });
